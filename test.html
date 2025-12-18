@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Test Client - SpatialSocket API</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        body { font-family: monospace; padding: 20px; max-width: 800px; margin: 0 auto; }
+        #log { 
+            border: 1px solid #ccc; 
+            padding: 10px; 
+            height: 300px; 
+            overflow-y: auto;
+            background: #f5f5f5;
+            margin-top: 10px;
+        }
+        button { 
+            padding: 10px 20px; 
+            margin: 5px; 
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .connected { color: rgb(109, 169, 102); font-weight: bold; }
+        .disconnected { color: rgb(197, 101, 159); font-weight: bold; }
+        .error { color: rgb(197, 101, 159); background-color: #ffe0e0; padding: 2px 4px; }
+        .message { color: rgb(95, 167, 238); }
+        .info { color: #666; }
+    </style>
+</head>
+<body>
+    <h1>WebSocket Test Client</h1>
+    <p>Test real-time communication with SpatialSocket API</p>
+    
+    <div>
+        Status: <span id="status" class="disconnected">Disconnected</span>
+    </div>
+    
+    <div style="margin: 20px 0;">
+        <button id="connectBtn" onclick="connect()">Connect</button>
+        <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+        <button onclick="setData()">Set Data</button>
+        <button onclick="getData()">Get Data</button>
+        <button onclick="clearLog()">Clear Log</button>
+        <button onclick="initAudio()">Init Audio</button>
+        <button onclick="createSource()">Create Source</button>
+        <button onclick="updatePosition()">Update Position</button>
+        
+    </div>
+    
+    <h3>Event Log:</h3>
+    <div id="log"></div>
+    
+    <script>
+        let socket = null;
+        
+        function log(message, className = 'message') {
+            const logDiv = document.getElementById('log');
+            if (!logDiv) {
+                console.error('Log div not found');
+                return;
+            }
+            
+            const entry = document.createElement('div');
+            entry.className = className;
+            const timestamp = new Date().toLocaleTimeString();
+            entry.textContent = `[${timestamp}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function updateStatus(text, isConnected) {
+            const statusEl = document.getElementById('status');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+            const pingBtn = document.getElementById('pingBtn');
+            
+            if (statusEl) {
+                statusEl.textContent = text;
+                statusEl.className = isConnected ? 'connected' : 'disconnected';
+            }
+            
+            if (connectBtn) connectBtn.disabled = isConnected;
+            if (disconnectBtn) disconnectBtn.disabled = !isConnected;
+            if (pingBtn) pingBtn.disabled = !isConnected;
+        }
+        
+        function connect() {
+            if (socket && socket.connected) {
+                log('Already connected', 'info');
+                return;
+            }
+            
+            log('Attempting to connect to http://localhost:5000...', 'info');
+            
+            socket = io('http://localhost:5000', {
+                transports: ['websocket', 'polling'],
+                reconnection: true,
+                reconnectionAttempts: 3,
+                reconnectionDelay: 1000
+            });
+            
+            socket.on('connect', () => {
+                log('Connected successfully!', 'connected');
+                updateStatus('Connected', true);
+            });
+            
+            socket.on('disconnect', (reason) => {
+                log(`Disconnected: ${reason}`, 'disconnected');
+                updateStatus('Disconnected', false);
+            });
+            
+            socket.on('connect_error', (error) => {
+                log(`Connection error: ${error.message}`, 'error');
+                updateStatus('Connection Failed', false);
+            });
+            
+            socket.on('message', (data) => {
+                log(`Message: ${JSON.stringify(data)}`, 'message');
+            });
+            
+            socket.on('pong', (data) => {
+                log(`Pong received: ${JSON.stringify(data)}`, 'message');
+            });
+            socket.on('status', (data) => {
+                log(`Status: ${JSON.stringify(data)}`, 'message');
+            });
+    
+            socket.on('error', (data) => {
+                log(`Error: ${JSON.stringify(data)}`, 'disconnected');
+            });
+            socket.onAny((eventName, ...args) => {
+                if (!['connect', 'disconnect', 'message', 'pong', 'connect_error'].includes(eventName)) {
+                    log(`Event '${eventName}': ${JSON.stringify(args)}`, 'info');
+                }
+            });
+        }
+        
+        function disconnect() {
+            if (!socket) {
+                log('No active connection', 'info');
+                return;
+            }
+            
+            log('Disconnecting...', 'info');
+            socket.disconnect();
+            socket = null;
+            updateStatus('Disconnected', false);
+        }
+        
+        function sendPing() {
+            if (!socket || !socket.connected) {
+                log('Cannot send ping - not connected!', 'error');
+                return;
+            }
+            
+            const timestamp = Date.now();
+            log(`Sending ping with timestamp ${timestamp}...`, 'info');
+            socket.emit('ping', { timestamp: timestamp });
+        }
+
+        function setData() {
+            if (!socket || !socket.connected) {
+                log('Not connected!', 'disconnected');
+                return;
+            }
+            const testData = { username: 'user123', position: { x: 1, y: 2, z: 3 } };
+            log(`Setting data: ${JSON.stringify(testData)}`, 'message');
+            socket.emit('set_data', testData);
+        }
+
+        function getData() {
+            if (!socket || !socket.connected) {
+                log('Not connected!', 'disconnected');
+                return;
+            }
+            log('Getting data...', 'message');
+            socket.emit('get_data');
+        }
+        
+        function clearLog() {
+            const logDiv = document.getElementById('log');
+            if (logDiv) {
+                logDiv.innerHTML = '';
+                log('Log cleared', 'info');
+            }
+        }
+
+        function initAudio() {
+            if (!socket || !socket.connected) {
+                log('Not connected', 'disconnected');
+                return;
+            }
+            log('Initialising audio...', 'message');
+            socket.emit('init_audio')
+        }
+
+        function createSource() {
+            if (!socket || !socket.connected) {
+                log('Not connected', 'disconnected');
+                return;
+            }
+            const data = {
+                source_id: 'test_source_1',
+                position: {x: 1.0, y: 0.5, z: -2.0}
+            };
+            log(`Creating source:: ${JSON.stringify(data)}`, 'message');
+            socket.emit('create_source', data);
+        }
+
+        function updatePosition() {
+            if (!socket || !socket.connected) {
+                log('Not connected', 'disconnected');
+                return;
+            }
+            const data = {
+                source_id: 'test_source_1',
+                position: {x: Math.random() * 2 - 1, y: 0, z: -2}
+            };
+            log(`Updating position: ${JSON.stringify(data)}`, 'message');
+            socket.emit('update_position');
+        }
+        
+        window.addEventListener('DOMContentLoaded', () => {
+            updateStatus('Disconnected', false);
+            log('Test client loaded. Click "Connect" to start.', 'info');
+        });
+    </script>
+</body>
+</html>
