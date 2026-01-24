@@ -173,43 +173,94 @@ def handle_stream_audio(data):
 @socketio.on('request_test_tone')
 def handle_request_test_tone(data):
     session_id = request.sid
-    processor = audio_processors.get(session_id)
-
-    if not processor or not processor.is_initialised:
-        emit('error', {
-            'code': 'PROCESSOR_NOT_READY',
-            'message': 'Audio processor not initialised'
-        })
-        return
     
-    source_id = data.get('source_id', 'test_source')
-    frequency = data.get('frequency', 440)
-    duration = data.get('duration', 1.0)
-
-    test_audio = generate_test_tone(frequency, duration, config.SAMPLE_RATE)
-    buffer_size = config.BUFFER_SIZE
-    num_chunks = len(test_audio) // buffer_size
-    for i in range(num_chunks):
-        start = i*buffer_size
-        end = start + buffer_size
-        chunk = test_audio[start:end]
-
-        result = processor.process_audio(source_id, chunk)
-
-        if result:
-            left_channel, right_channel = result
-            output_encoded = encode_audio_to_base64(left_channel, right_channel)
-            emit('processed_audio', {
-                'source_id': source_id,
-                'audio_data': output_encoded,
-                'chunk_index': i,
-                'total_chunks': num_chunks,
-                'timestamp': time.time()
+    print(f"[request_test_tone] Received request from session {session_id}")
+    
+    try:
+        # Validate session exists
+        if session_id not in audio_processors:
+            print(f"[request_test_tone] ERROR: No processor found for session {session_id}")
+            emit('error', {
+                'code': 'SESSION_NOT_FOUND',
+                'message': 'No audio processor found for session'
             })
+            return
+        
+        processor = audio_processors[session_id]
+        
+        if not processor or not processor.is_initialised:
+            print(f"[request_test_tone] ERROR: Processor not ready for session {session_id}")
+            emit('error', {
+                'code': 'PROCESSOR_NOT_READY',
+                'message': 'Audio processor not initialised'
+            })
+            return
+        
+        source_id = data.get('source_id', 'test_source')
+        frequency = data.get('frequency', 440)
+        duration = data.get('duration', 1.0)
+        
+        print(f"[request_test_tone] Processing test tone: source_id={source_id}, freq={frequency}, duration={duration}")
+        
+        # Ensure source exists, create if missing
+        if source_id not in processor.sources:
+            if not processor.create_source(source_id, {'x': 0, 'y': 0, 'z': 0}):
+                print(f"[request_test_tone] ERROR: Failed to create source {source_id}")
+                emit('error', {
+                    'code': 'SOURCE_CREATION_FAILED',
+                    'message': f'Failed to create source {source_id}'
+                })
+                return
+            print(f"[request_test_tone] Created new source {source_id}")
+        else:
+            print(f"[request_test_tone] Using existing source {source_id}")
+        
+        print(f"[request_test_tone] Source {source_id} created/verified")
+        
+        test_audio = generate_test_tone(frequency, duration, config.SAMPLE_RATE)
+        buffer_size = config.BUFFER_SIZE
+        num_chunks = len(test_audio) // buffer_size
+        
+        print(f"[request_test_tone] Processing {num_chunks} chunks")
+        
+        for i in range(num_chunks):
+            start = i*buffer_size
+            end = start + buffer_size
+            chunk = test_audio[start:end]
+
+            result = processor.process_audio(source_id, chunk)
+
+            if result:
+                left_channel, right_channel = result
+                output_encoded = encode_audio_to_base64(left_channel, right_channel)
+                emit('processed_audio', {
+                    'source_id': source_id,
+                    'audio_data': output_encoded,
+                    'chunk_index': i,
+                    'total_chunks': num_chunks,
+                    'timestamp': time.time()
+                })
+                print(f"[request_test_tone] Sent chunk {i+1}/{num_chunks}")
+            else:
+                print(f"[request_test_tone] ERROR: Failed to process chunk {i}")
+                emit('error', {
+                    'code': 'PROCESSING_ERROR',
+                    'message': f'Failed to process audio chunk {i}'
+                })
+                return
+        
         emit('status', {
             'code': 'TEST_TONE_COMPLETE',
-            'message': f'Processed {num_chunks} chunks'
+            'message': f'Processed {num_chunks} chunks',
             'source_id': source_id
+        })
+        print(f"[request_test_tone] Completed test tone for session {session_id}")
+        
+    except Exception as e:
+        print(f"[request_test_tone] ERROR: Exception in handler: {str(e)}")
+        emit('error', {
+            'code': 'HANDLER_ERROR',
+            'message': f'Error processing test tone: {str(e)}'
         })
 
 @socketio.on('set_data')
