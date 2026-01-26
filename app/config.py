@@ -11,6 +11,10 @@ class Config:
     SAMPLE_RATE = int(os.environ.get('SAMPLE_RATE', 48000))
     BUFFER_SIZE = int(os.environ.get('BUFFER_SIZE', 1024))
     
+    # Session settings
+    SESSION_TIMEOUT_SECONDS = int(os.environ.get('SESSION_TIMEOUT_SECONDS', 300))  # 5 minutes
+    SESSION_CLEANUP_INTERVAL = int(os.environ.get('SESSION_CLEANUP_INTERVAL', 60))  # 1 minute
+    
     # CORS settings
     CORS_ALLOWED_ORIGINS = '*'
 
