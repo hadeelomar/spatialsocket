@@ -1,12 +1,14 @@
 from dotenv import load_dotenv
 load_dotenv()
 import time
+import logging
+import atexit
 from flask import Flask, jsonify, request
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from typing import Dict, Tuple, Optional
 from config import config
-from session_manager import SessionManager
+from session_manager import SessionManager, StreamState
 from audio_processor import AudioProcessor
 from audio_streamer import (
     encode_audio_to_base64,
@@ -14,6 +16,12 @@ from audio_streamer import (
     generate_test_tone
 )
 from performance_monitor import PerformanceMonitor
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = config.SECRET_KEY
@@ -25,9 +33,34 @@ socketio = SocketIO(
     async_mode='threading'
 )
 
-session_manager = SessionManager()
+# Initialize managers with config values
+session_manager = SessionManager(
+    session_timeout=config.SESSION_TIMEOUT_SECONDS,
+    cleanup_interval=config.SESSION_CLEANUP_INTERVAL
+)
 performance_monitor = PerformanceMonitor()
 audio_processors: Dict[str, AudioProcessor] = {}
+
+# Register shutdown handler
+atexit.register(shutdown_server)
+
+def shutdown_server():
+    """Clean shutdown of server resources"""
+    logging.info("Shutting down server...")
+    
+    # Cleanup all audio processors
+    for session_id, processor in list(audio_processors.items()):
+        try:
+            processor.cleanup()
+            logging.info(f"Cleaned up audio processor for session {session_id}")
+        except Exception as e:
+            logging.error(f"Error cleaning up processor for {session_id}: {e}")
+    audio_processors.clear()
+    
+    # Shutdown session manager
+    session_manager.shutdown()
+    
+    logging.info("Server shutdown complete")
 
 @app.route('/')
 def index():
@@ -45,6 +78,14 @@ def get_metrics():
     """Get performance metrics endpoint"""
     return jsonify(performance_monitor.to_dict())
 
+@app.route('/sessions')
+def get_sessions():
+    """Get information about all active sessions"""
+    return jsonify({
+        'sessions': session_manager.get_all_session_info(),
+        'total_sessions': session_manager.get_session_count()
+    })
+
 @app.route('/health')
 def health():
     """Health check endpoint"""
@@ -53,32 +94,59 @@ def health():
 @socketio.on('connect')
 def handle_connect():
     session_id = request.sid
-    print(f"Client connected: {request.sid}")
+    logging.info(f"Client connected: {session_id}")
+    
     performance_monitor.record_receive_timestamp(session_id)
-    session = session_manager.create_session(session_id)
+    
+    # Create session with config parameters
+    session = session_manager.create_session(
+        session_id, 
+        config.SAMPLE_RATE, 
+        config.BUFFER_SIZE
+    )
+    
+    # Initialize audio processor
     processor = AudioProcessor(config.SAMPLE_RATE, config.BUFFER_SIZE)
     audio_processors[session_id] = processor
+    
+    session.set_stream_state(StreamState.IDLE)
     performance_monitor.record_send_timestamp(session_id)
+    
     emit('connected', {
         'session_id': session_id,
         'sample_rate': config.SAMPLE_RATE,
         'buffer_size': config.BUFFER_SIZE,
         'message': 'Connected to SpatialSocket API'
-    }
-    )
+    })
+    
+    logging.info(f"Session {session_id} fully initialized")
 
 @socketio.on('disconnect')
 def handle_disconnect():
     session_id = request.sid
-    print(f"Client disconnected: {request.sid}")
+    logging.info(f"Client disconnected: {session_id}")
     performance_monitor.record_receive_timestamp(session_id)
-
-    if session_id in audio_processors:
-        audio_processors[session_id].cleanup()
-        del audio_processors[session_id]
     
+    # Get session before cleanup
+    session = session_manager.get_session(session_id)
+    if session:
+        session.set_stream_state(StreamState.STOPPING)
+    
+    # Clean up audio processor
+    if session_id in audio_processors:
+        try:
+            processor = audio_processors[session_id]
+            processor.cleanup()
+            del audio_processors[session_id]
+            logging.info(f"Audio processor cleaned up for session {session_id}")
+        except Exception as e:
+            logging.error(f"Error cleaning up processor for {session_id}: {e}")
+    
+    # Remove session from manager
     session_manager.remove_session(session_id)
     performance_monitor.cleanup_session(session_id)
+    
+    logging.info(f"Session {session_id} fully disconnected and cleaned up")
 
 @socketio.on('init_audio')
 def handle_init_audio():
@@ -140,12 +208,18 @@ def handle_update_position(data):
 def handle_stream_audio(data):
     session_id = request.sid
     processor = audio_processors.get(session_id)
+    session = session_manager.get_session(session_id)
     
     performance_monitor.record_receive_timestamp(session_id)
     performance_monitor.record_processing_start(session_id)
+    
+    if session:
+        session.set_stream_state(StreamState.STREAMING)
 
     if not processor or not processor.is_initialised:
         performance_monitor.increment_errors()
+        if session:
+            session.set_stream_state(StreamState.ERROR)
         emit('error', {
             'code': 'PROCESSOR_NOT_READY',
             'message': 'Audio processor not initalised'
@@ -157,6 +231,8 @@ def handle_stream_audio(data):
 
     if not source_id or not audio_data_encoded:
         performance_monitor.increment_errors()
+        if session:
+            session.set_stream_state(StreamState.ERROR)
         emit('error', {
             'code': 'INVALID_DATA',
             'message': 'source_id and audio_data required'
@@ -170,6 +246,8 @@ def handle_stream_audio(data):
 
     if audio_buffer is None:
         performance_monitor.increment_errors()
+        if session:
+            session.set_stream_state(StreamState.ERROR)
         emit('error', {
             'code': 'DECODE_ERROR',
             'message': 'Failed to decode audio data'
@@ -179,6 +257,8 @@ def handle_stream_audio(data):
     result = processor.process_audio(source_id, audio_buffer)
     if result is None:
         performance_monitor.increment_errors()
+        if session:
+            session.set_stream_state(StreamState.ERROR)
         emit('error', {
             'code': 'PROCESSING_ERROR',
             'message': 'Failed to process audio'
@@ -192,6 +272,9 @@ def handle_stream_audio(data):
     performance_monitor.increment_bytes_out(session_id, len(output_encoded))
     performance_monitor.record_processing_end(session_id)
     performance_monitor.record_send_timestamp(session_id)
+    
+    if session:
+        session.set_stream_state(StreamState.IDLE)
     
     emit('processed_audio', {
         'source_id': source_id,
