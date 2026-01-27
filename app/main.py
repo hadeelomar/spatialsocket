@@ -204,6 +204,131 @@ def handle_update_position(data):
             'source_id': source_id})
 
 
+@socketio.on('update_listener')
+def handle_update_listener(data):
+    """Handle listener pose updates with validation and optimisation."""
+    session_id = request.sid
+    processor = audio_processors.get(session_id)
+    session = session_manager.get_session(session_id)
+    
+    performance_monitor.record_receive_timestamp(session_id)
+    performance_monitor.record_processing_start(session_id)
+    
+    # Validate payload structure
+    validation_error = _validate_listener_payload(data)
+    if validation_error:
+        performance_monitor.increment_errors()
+        emit('error', {
+            'code': 'INVALID_PAYLOAD',
+            'message': validation_error
+        })
+        return
+    
+    # Extract validated data
+    position = data['position']
+    orientation = data['orientation']
+    
+    if not session:
+        performance_monitor.increment_errors()
+        emit('error', {
+            'code': 'SESSION_NOT_FOUND',
+            'message': 'Session not found'
+        })
+        return
+    
+    # Update session listener pose with optimisation tracking
+    position_changed = session.update_listener_pose(position, orientation)
+    
+    # Update audio processor if available
+    if processor and processor.is_initialised:
+        success = processor.set_listener_pose(position, orientation, position_changed)
+        if not success:
+            performance_monitor.increment_errors()
+            emit('error', {
+                'code': 'LISTENER_UPDATE_FAILED',
+                'message': 'Failed to update listener pose in audio processor'
+            })
+            return
+    
+    performance_monitor.record_processing_end(session_id)
+    performance_monitor.record_send_timestamp(session_id)
+    
+    emit('status', {
+        'code': 'LISTENER_UPDATED',
+        'message': 'Listener pose updated successfully',
+        'position_changed': position_changed,
+        'pose': session.get_listener_pose()
+    })
+
+
+def _validate_listener_payload(data: dict) -> str:
+    """
+    Validate listener update payload.
+    
+    Args:
+        data: Incoming payload data
+        
+    Returns:
+        str: Error message if validation fails, None if valid
+    """
+    # Check required top-level keys
+    required_keys = ['position', 'orientation']
+    for key in required_keys:
+        if key not in data:
+            return f'Missing required key: {key}'
+    
+    position = data['position']
+    orientation = data['orientation']
+    
+    # Validate position
+    if not isinstance(position, dict):
+        return 'Position must be a dictionary'
+    
+    pos_required_keys = ['x', 'y', 'z']
+    for key in pos_required_keys:
+        if key not in position:
+            return f'Missing required position key: {key}'
+        if not isinstance(position[key], (int, float)):
+            return f'Position {key} must be a number'
+        # Check for reasonable ranges (e.g., within +/-1000 meters)
+        if abs(position[key]) > 1000:
+            return f'Position {key} value {position[key]} is outside reasonable range (-1000 to 1000)'
+    
+    # Validate orientation structure
+    if not isinstance(orientation, dict):
+        return 'Orientation must be a dictionary'
+    
+    orient_required_keys = ['forward', 'up']
+    for key in orient_required_keys:
+        if key not in orientation:
+            return f'Missing required orientation key: {key}'
+        if not isinstance(orientation[key], dict):
+            return f'Orientation {key} must be a dictionary'
+        
+        # Validate vector components
+        vector = orientation[key]
+        vector_required_keys = ['x', 'y', 'z']
+        for vkey in vector_required_keys:
+            if vkey not in vector:
+                return f'Missing required orientation {key} key: {vkey}'
+            if not isinstance(vector[vkey], (int, float)):
+                return f'Orientation {key} {vkey} must be a number'
+            # Check for unit vector ranges (-1 to 1)
+            if abs(vector[vkey]) > 1.1:  # Small tolerance for floating point
+                return f'Orientation {key} {vkey} value {vector[vkey]} is outside unit vector range (-1 to 1)'
+    
+    # Validate that forward and up vectors are not parallel (cross product should not be zero)
+    forward = orientation['forward']
+    up = orientation['up']
+    
+    # Simple check: vectors should not be identical or opposite
+    dot_product = (forward['x'] * up['x'] + forward['y'] * up['y'] + forward['z'] * up['z'])
+    if abs(dot_product) > 0.99:  # Nearly parallel
+        return 'Forward and up vectors should not be parallel'
+    
+    return None  # Validation passed
+
+
 @socketio.on('stream_audio')
 def handle_stream_audio(data):
     session_id = request.sid
