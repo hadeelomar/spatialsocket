@@ -133,6 +133,53 @@ class AudioProcessor:
             print(f"[AudioProcessor] Failed to update position: {e}")
             return False
 
+    def set_listener_pose(self, position: Dict[str, float], orientation: Dict[str, Dict[str, float]], position_changed: bool = True) -> bool:
+        """
+        Set the listener position and orientation for spatial audio processing.
+        
+        Args:
+            position: Dictionary with x, y, z coordinates
+            orientation: Dictionary with forward and up vectors
+            position_changed: Whether position actually changed (for optimisation)
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.is_initialised:
+            print("[AudioProcessor] Cannot set listener pose: processor not initialised")
+            return False
+        
+        if self.placeholder_mode or not PY3DTI_AVAILABLE:
+            # In placeholder mode, just store the pose for logging
+            print(f"[AudioProcessor] Placeholder mode: set listener pose to {position}, orientation {orientation}")
+            return True
+        
+        try:
+            # Set listener position and orientation in py3dti
+            self.listener.set_position(position['x'], position['y'], position['z'])
+            
+            # Set orientation using forward and up vectors
+            forward = orientation['forward']
+            up = orientation['up']
+            
+            # py3dti uses set_orientation with forward and up vectors
+            self.listener.set_orientation(
+                forward['x'], forward['y'], forward['z'],
+                up['x'], up['y'], up['z']
+            )
+            
+            # Log optimisation info
+            if position_changed:
+                print(f"[AudioProcessor] Listener position updated: {position}")
+            else:
+                print(f"[AudioProcessor] Listener orientation updated only (position unchanged)")
+            
+            return True
+            
+        except Exception as e:
+            print(f"[AudioProcessor] Failed to set listener pose: {e}")
+            return False
+
     def process_audio(self, source_id: str, audio_buffer: np.ndarray) -> Optional[Tuple[np.ndarray, np.ndarray]]:
         """
         Process audio buffer for spatial audio.
