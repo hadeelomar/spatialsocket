@@ -33,7 +33,7 @@ socketio = SocketIO(
     async_mode='threading'
 )
 
-# Initialize managers with config values
+# Initialise managers with config values
 session_manager = SessionManager(
     session_timeout=config.SESSION_TIMEOUT_SECONDS,
     cleanup_interval=config.SESSION_CLEANUP_INTERVAL
@@ -105,8 +105,8 @@ def handle_connect():
         config.BUFFER_SIZE
     )
     
-    # Initialize audio processor
-    processor = AudioProcessor(config.SAMPLE_RATE, config.BUFFER_SIZE)
+    # Initialise audio processor
+    processor = AudioProcessor(config.SAMPLE_RATE, config.BUFFER_SIZE, config.MAX_SOURCES_PER_SESSION)
     audio_processors[session_id] = processor
     
     session.set_stream_state(StreamState.IDLE)
@@ -119,7 +119,7 @@ def handle_connect():
         'message': 'Connected to SpatialSocket API'
     })
     
-    logging.info(f"Session {session_id} fully initialized")
+    logging.info(f"Session {session_id} fully initialised")
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -163,6 +163,31 @@ def handle_init_audio():
     else:
         emit('error', {'message': 'No audio processor found'})
 
+@socketio.on('remove_source')
+def handle_remove_source(data):
+    session_id = request.sid
+    processor = audio_processors.get(session_id)
+    
+    source_id = data.get('source_id')
+    
+    if not source_id:
+        emit('error', {'message': 'source_id required'})
+        return
+    
+    if processor:
+        success = processor.remove_source(source_id)
+        if success:
+            # Update metrics
+            performance_monitor.decrement_source_count(session_id)
+        
+        emit('status', {
+            'code': 'SOURCE_REMOVED' if success else 'REMOVE_FAILED',
+            'source_id': source_id,
+            'remaining_sources': processor.get_source_count()
+        })
+    else:
+        emit('error', {'message': 'No audio processor found'})
+
 @socketio.on('create_source')
 def handle_create_source(data):
     session_id = request.sid
@@ -177,10 +202,15 @@ def handle_create_source(data):
 
     if processor:
         success = processor.create_source(source_id, position)
+        if success:
+            # Update metrics
+            performance_monitor.increment_source_count(session_id)
+        
         emit('status', {
             'code': 'SOURCE_CREATED' if success else 'CREATE_FAILED',
             'source_id': source_id,
-            'position': position
+            'position': position,
+            'total_sources': processor.get_source_count()
         })
     else:
         emit('error', {'message': 'No audio processor found'})

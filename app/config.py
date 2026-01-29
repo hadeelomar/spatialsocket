@@ -10,6 +10,7 @@ class Config:
     # Audio settings
     SAMPLE_RATE = int(os.environ.get('SAMPLE_RATE', 48000))
     BUFFER_SIZE = int(os.environ.get('BUFFER_SIZE', 1024))
+    MAX_SOURCES_PER_SESSION = int(os.environ.get('MAX_SOURCES_PER_SESSION', 16))
     
     # Session settings
     SESSION_TIMEOUT_SECONDS = int(os.environ.get('SESSION_TIMEOUT_SECONDS', 300))  # 5 minutes

@@ -21,16 +21,18 @@ class AudioProcessor:
     - Output: Tuple of (left_channel, right_channel) as numpy arrays
     """
 
-    def __init__(self, sample_rate: int = 48000, buffer_size: int = 1024):
+    def __init__(self, sample_rate: int = 48000, buffer_size: int = 1024, max_sources: int = 16):
         self.sample_rate = sample_rate
         self.buffer_size = buffer_size
+        self.max_sources = max_sources
         self.is_initialised = False
         self.placeholder_mode = False
 
         self.renderer = None
         self.listener = None
         self.sources = {}
-        print(f"[AudioProcessor] Created: {sample_rate}Hz, {buffer_size} samples")
+        self.source_buffers = {}  # Store audio buffers for each source
+        print(f"[AudioProcessor] Created: {sample_rate}Hz, {buffer_size} samples, max_sources={max_sources}")
 
     def initialise(self, hrtf_file: str = 'p0200.sofa') -> bool:
         """
@@ -91,12 +93,18 @@ class AudioProcessor:
 
     def create_source(self, source_id: str, position: Dict[str, float]) -> bool:
         if source_id in self.sources:
+            print(f"[AudioProcessor] Source {source_id} already exists")
+            return False
+        
+        if len(self.sources) >= self.max_sources:
+            print(f"[AudioProcessor] Maximum sources limit reached ({self.max_sources})")
             return False
         
         if self.placeholder_mode or not PY3DTI_AVAILABLE:
             self.sources[source_id] = {
                 'position': position,
             }
+            self.source_buffers[source_id] = np.zeros(self.buffer_size, dtype=np.float32)
             print(f"[AudioProcessor] Created source (placeholder): {source_id} at {position}")
             return True
 
@@ -107,6 +115,7 @@ class AudioProcessor:
             source.set_position(position['x'], position['y'], position['z'])
 
             self.sources[source_id] = source
+            self.source_buffers[source_id] = np.zeros(self.buffer_size, dtype=np.float32)
             print(f"[AudioProcessor] Created source: {source_id} at {position}")
             return True
         
@@ -117,6 +126,7 @@ class AudioProcessor:
 
     def update_source_position(self, source_id: str, position: Dict[str, float]) -> bool:
         if source_id not in self.sources:
+            print(f"[AudioProcessor] Source {source_id} not found for position update")
             return False
         
         if self.placeholder_mode or not PY3DTI_AVAILABLE:
@@ -132,6 +142,39 @@ class AudioProcessor:
         except Exception as e:
             print(f"[AudioProcessor] Failed to update position: {e}")
             return False
+    
+    def remove_source(self, source_id: str) -> bool:
+        """Remove a source and clean up its resources."""
+        if source_id not in self.sources:
+            print(f"[AudioProcessor] Source {source_id} not found for removal")
+            return False
+        
+        try:
+            if not self.placeholder_mode and PY3DTI_AVAILABLE:
+                # Clean up py3dti source
+                source = self.sources[source_id]
+                # Note: py3dti doesn't seem to have explicit source removal
+                # The source will be cleaned up when renderer is destroyed
+            
+            # Remove from storage
+            del self.sources[source_id]
+            if source_id in self.source_buffers:
+                del self.source_buffers[source_id]
+            
+            print(f"[AudioProcessor] Removed source: {source_id}")
+            return True
+            
+        except Exception as e:
+            print(f"[AudioProcessor] Failed to remove source: {e}")
+            return False
+    
+    def get_source_count(self) -> int:
+        """Get the current number of sources."""
+        return len(self.sources)
+    
+    def get_source_ids(self) -> list:
+        """Get list of current source IDs."""
+        return list(self.sources.keys())
 
     def set_listener_pose(self, position: Dict[str, float], orientation: Dict[str, Dict[str, float]], position_changed: bool = True) -> bool:
         """
@@ -197,82 +240,63 @@ class AudioProcessor:
             print(f"[AudioProcessor] Cannot process: source {source_id} not found or not initialised")
             return None
         
+        # Store the audio buffer for mixing
+        self.source_buffers[source_id] = audio_buffer.copy()
+        
+        # Mix all active sources
+        return self._mix_all_sources()
+    
+    def _mix_all_sources(self) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+        """Mix all active sources and return stereo output."""
+        if not self.sources:
+            return None
+        
+        start_time = time.time()
+        
         if self.placeholder_mode:
-            # Validate input shape even in placeholder mode
-            if audio_buffer.ndim != 1:
-                print(f"[AudioProcessor] Warning: Expected mono input (1D), got {audio_buffer.ndim}D")
-                if audio_buffer.ndim == 2 and audio_buffer.shape[1] == 1:
-                    audio_buffer = audio_buffer.flatten()
-                else:
-                    print(f"[AudioProcessor] Error: Unsupported input shape {audio_buffer.shape}")
-                    return None
+            # Simple mixing: average all sources
+            if self.source_buffers:
+                mixed_buffer = np.zeros(self.buffer_size, dtype=np.float32)
+                for source_id, buffer in self.source_buffers.items():
+                    if buffer is not None and len(buffer) == self.buffer_size:
+                        mixed_buffer += buffer
+                
+                # Normalise to prevent clipping
+                if len(self.source_buffers) > 0:
+                    mixed_buffer /= len(self.source_buffers)
+                
+                processing_time = (time.time() - start_time) * 1000
+                print(f"[AudioProcessor] Mixed {len(self.source_buffers)} sources in {processing_time:.2f}ms (placeholder)")
+                return mixed_buffer, mixed_buffer
             
-            # Ensure correct buffer size (same logic as full mode)
-            if len(audio_buffer) != self.buffer_size:
-                if len(audio_buffer) < self.buffer_size:
-                    audio_buffer = np.pad(audio_buffer, (0, self.buffer_size - len(audio_buffer)))
-                    print(f"[AudioProcessor] Padded audio from {len(audio_buffer) - (self.buffer_size - len(audio_buffer))} to {self.buffer_size} samples")
-                else:
-                    audio_buffer = audio_buffer[:self.buffer_size]
-                    print(f"[AudioProcessor] Trimmed audio from {len(audio_buffer) + (len(audio_buffer) - self.buffer_size)} to {self.buffer_size} samples")
-            
-            # Convert to float32 if needed
-            if audio_buffer.dtype != np.float32:
-                original_dtype = audio_buffer.dtype
-                audio_buffer = audio_buffer.astype(np.float32)
-                print(f"[AudioProcessor] Converted audio from {original_dtype} to float32")
-            
-            # Placeholder mode: return identical left/right channels
-            processed_audio = audio_buffer.copy()
-            print(f"[AudioProcessor] Placeholder mode: processed {len(audio_buffer)} samples in {(time.time() - start_time)*1000:.2f}ms")
-            return processed_audio, processed_audio
+            return None
         
         try:
-            # Validate and normalise input
-            if audio_buffer.ndim != 1:
-                print(f"[AudioProcessor] Warning: Expected mono input (1D), got {audio_buffer.ndim}D")
-                if audio_buffer.ndim == 2 and audio_buffer.shape[1] == 1:
-                    audio_buffer = audio_buffer.flatten()
-                else:
-                    print(f"[AudioProcessor] Error: Unsupported input shape {audio_buffer.shape}")
-                    return None
+            # Set buffers for all sources
+            for source_id, source in self.sources.items():
+                if source_id in self.source_buffers:
+                    buffer = self.source_buffers[source_id]
+                    if buffer is not None and len(buffer) == self.buffer_size:
+                        source.set_buffer(buffer)
             
-            # Ensure correct buffer size
-            if len(audio_buffer) != self.buffer_size:
-                if len(audio_buffer) < self.buffer_size:
-                    audio_buffer = np.pad(audio_buffer, (0, self.buffer_size - len(audio_buffer)))
-                    print(f"[AudioProcessor] Padded audio from {len(audio_buffer) - (self.buffer_size - len(audio_buffer))} to {self.buffer_size} samples")
-                else:
-                    audio_buffer = audio_buffer[:self.buffer_size]
-                    print(f"[AudioProcessor] Trimmed audio from {len(audio_buffer) + (len(audio_buffer) - self.buffer_size)} to {self.buffer_size} samples")
-            
-            # Convert to float32 if needed
-            if audio_buffer.dtype != np.float32:
-                original_dtype = audio_buffer.dtype
-                audio_buffer = audio_buffer.astype(np.float32)
-                print(f"[AudioProcessor] Converted audio from {original_dtype} to float32")
-            
-            # Set buffer for the source
-            source = self.sources[source_id]
-            source.set_buffer(audio_buffer)
-
-            # Process spatial audio
+            # Process spatial audio (py3dti automatically mixes all sources)
             left = self.renderer.get_left_channel()
             right = self.renderer.get_right_channel()
             
             processing_time = (time.time() - start_time) * 1000
-            print(f"[AudioProcessor] Processed frame for source {source_id} in {processing_time:.2f}ms")
+            print(f"[AudioProcessor] Mixed {len(self.sources)} sources in {processing_time:.2f}ms")
             
             return left, right
             
         except Exception as e:
-            print(f"[AudioProcessor] Failed to process audio: {e}")
+            print(f"[AudioProcessor] Failed to mix audio: {e}")
             return None
 
     def cleanup(self):
         """Clean up audio processor resources."""
         print("[AudioProcessor] Cleaning up...")
         self.sources.clear()
+        self.source_buffers.clear()
         self.is_initialised = False
         self.placeholder_mode = False
         self.renderer = None
