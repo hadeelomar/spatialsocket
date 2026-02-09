@@ -5,3 +5,7 @@ python-socketio
 python-dotenv
 numpy
 scipy
+py3dti
+miniaudio
+soundcard
+werkzeug

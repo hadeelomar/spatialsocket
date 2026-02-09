@@ -6,7 +6,7 @@ import atexit
 from flask import Flask, jsonify, request
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
-from typing import Dict, Tuple, Optional
+from typing import Dict
 from config import config
 from session_manager import SessionManager, StreamState
 from audio_processor import AudioProcessor
@@ -16,6 +16,7 @@ from audio_streamer import (
     generate_test_tone
 )
 from performance_monitor import PerformanceMonitor
+from source_manager import SourceManager
 
 # Configure logging
 logging.basicConfig(
@@ -25,6 +26,8 @@ logging.basicConfig(
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = config.SECRET_KEY
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
+app.config['UPLOAD_EXTENSIONS'] = ['.mp3', '.wav', '.m4a', '.ogg']
 CORS(app, resources={r"/*": {"origins": config.CORS_ALLOWED_ORIGINS}})
 
 socketio = SocketIO(
@@ -40,9 +43,7 @@ session_manager = SessionManager(
 )
 performance_monitor = PerformanceMonitor()
 audio_processors: Dict[str, AudioProcessor] = {}
-
-# Register shutdown handler
-atexit.register(shutdown_server)
+source_manager = SourceManager()
 
 def shutdown_server():
     """Clean shutdown of server resources"""
@@ -61,6 +62,9 @@ def shutdown_server():
     session_manager.shutdown()
     
     logging.info("Server shutdown complete")
+
+# Register shutdown handler
+atexit.register(shutdown_server)
 
 @app.route('/')
 def index():
@@ -90,6 +94,112 @@ def get_sessions():
 def health():
     """Health check endpoint"""
     return jsonify({'status': 'healthy'})
+
+@app.route('/upload/<session_id>/<source_id>', methods=['POST'])
+def upload_audio_file(session_id, source_id):
+    """Upload audio file for a specific source"""
+    try:
+        # Check if session exists
+        session = session_manager.get_session(session_id)
+        if not session:
+            return jsonify({'error': 'Session not found'}), 404
+        
+        # Check if file is in request
+        if 'audio_file' not in request.files:
+            return jsonify({'error': 'No audio file provided'}), 400
+        
+        file = request.files['audio_file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        if not allowed_file(file.filename):
+            return jsonify({'error': 'File type not allowed. Allowed: MP3, WAV, M4A, OGG'}), 400
+        
+        filename = file.filename
+        file_path = source_manager.save_uploaded_file(session_id, source_id, file_data, filename)
+        
+        if not file_path:
+            return jsonify({'error': 'Failed to save file'}), 500
+        
+        # Get audio info
+        audio_info = source_manager.get_audio_info(file_path)
+        
+        # Create source if it doesn't exist
+        processor = audio_processors.get(session_id)
+        if processor:
+            processor.create_source(source_id, {'x': 0, 'y': 0, 'z': 0})
+        
+        return jsonify({
+            'message': 'File uploaded successfully',
+            'file_info': audio_info,
+            'source_id': source_id,
+            'session_id': session_id
+        })
+        
+    except Exception as e:
+        logging.error(f"Upload error: {e}")
+        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
+
+@app.route('/files/<session_id>', methods=['GET'])
+def list_session_files(session_id):
+    """List all uploaded files for a session"""
+    try:
+        # Check if session exists
+        session = session_manager.get_session(session_id)
+        if not session:
+            return jsonify({'error': 'Session not found'}), 404
+        
+        files = source_manager.get_session_files(session_id)
+        return jsonify({
+            'session_id': session_id,
+            'files': files,
+            'total_files': len(files)
+        })
+        
+    except Exception as e:
+        logging.error(f"List files error: {e}")
+        return jsonify({'error': f'Failed to list files: {str(e)}'}), 500
+
+@app.route('/stream/<session_id>/<source_id>/<filename>', methods=['GET'])
+def stream_audio_file(session_id, source_id, filename):
+    """Stream uploaded audio file for WebSocket processing"""
+    try:
+        # Check if session exists
+        session = session_manager.get_session(session_id)
+        if not session:
+            return jsonify({'error': 'Session not found'}), 404
+        
+        # Find file path
+        session_dir = os.path.join(source_manager.upload_dir, session_id)
+        file_path = os.path.join(session_dir, secure_filename(filename))
+        
+        if not os.path.exists(file_path):
+            return jsonify({'error': 'File not found'}), 404
+        
+        # Convert to buffers
+        buffers = source_manager.convert_mp3_to_audio_buffers(
+            file_path, 
+            config.SAMPLE_RATE, 
+            config.BUFFER_SIZE
+        )
+        
+        if not buffers:
+            return jsonify({'error': 'Failed to process audio file'}), 500
+        
+        # Return buffer info (actual streaming via WebSocket)
+        return jsonify({
+            'message': 'Audio processed for streaming',
+            'source_id': source_id,
+            'filename': filename,
+            'total_buffers': len(buffers),
+            'buffer_size': config.BUFFER_SIZE,
+            'sample_rate': config.SAMPLE_RATE,
+            'duration_seconds': len(buffers) * config.BUFFER_SIZE / config.SAMPLE_RATE
+        })
+        
+    except Exception as e:
+        logging.error(f"Stream preparation error: {e}")
+        return jsonify({'error': f'Failed to prepare stream: {str(e)}'}), 500
 
 @socketio.on('connect')
 def handle_connect():
@@ -145,6 +255,13 @@ def handle_disconnect():
     # Remove session from manager
     session_manager.remove_session(session_id)
     performance_monitor.cleanup_session(session_id)
+    
+    # Clean up uploaded files
+    try:
+        source_manager.cleanup_session_files(session_id)
+        logging.info(f"Uploaded files cleaned up for session {session_id}")
+    except Exception as e:
+        logging.error(f"Error cleaning up files for {session_id}: {e}")
     
     logging.info(f"Session {session_id} fully disconnected and cleaned up")
 
@@ -576,6 +693,110 @@ def handle_get_data():
     else:
         performance_monitor.increment_errors()
         emit('error', {'message': 'Session not found'})
+
+@socketio.on('stream_uploaded_file')
+def handle_stream_uploaded_file(data):
+    """Stream an uploaded audio file through spatial processing"""
+    session_id = request.sid
+    processor = audio_processors.get(session_id)
+    session = session_manager.get_session(session_id)
+    
+    if not session:
+        emit('error', {'message': 'Session not found'})
+        return
+    
+    source_id = data.get('source_id')
+    filename = data.get('filename')
+    
+    if not source_id or not filename:
+        emit('error', {'message': 'source_id and filename required'})
+        return
+    
+    try:
+        # Find file path
+        session_dir = os.path.join(source_manager.upload_dir, session_id)
+        file_path = os.path.join(session_dir, secure_filename(filename))
+        
+        if not os.path.exists(file_path):
+            emit('error', {'message': 'File not found'})
+            return
+        
+        # Convert to buffers
+        buffers = source_manager.convert_mp3_to_audio_buffers(
+            file_path, 
+            config.SAMPLE_RATE, 
+            config.BUFFER_SIZE
+        )
+        
+        if not buffers:
+            emit('error', {'message': 'Failed to process audio file'})
+            return
+        
+        # Stream all buffers
+        emit('status', {
+            'code': 'FILE_STREAM_STARTED',
+            'message': f'Starting streaming {filename}',
+            'total_buffers': len(buffers),
+            'source_id': source_id
+        })
+        
+        for i, buffer in enumerate(buffers):
+            # Process through spatial audio
+            result = processor.process_audio(source_id, buffer)
+            if result:
+                left_channel, right_channel = result
+                output_encoded = encode_audio_to_base64(left_channel, right_channel)
+                
+                performance_monitor.increment_frames_processed(session_id)
+                performance_monitor.record_send_timestamp(session_id)
+                
+                emit('processed_audio', {
+                    'source_id': source_id,
+                    'audio_data': output_encoded,
+                    'buffer_index': i,
+                    'total_buffers': len(buffers),
+                    'filename': filename,
+                    'timestamp': time.time()
+                })
+            else:
+                emit('error', {
+                    'code': 'PROCESSING_ERROR',
+                    'message': f'Failed to process buffer {i}'
+                })
+                break
+        
+        emit('status', {
+            'code': 'FILE_STREAM_COMPLETE',
+            'message': f'Completed streaming {filename}',
+            'source_id': source_id
+        })
+        
+    except Exception as e:
+        logging.error(f"File streaming error: {e}")
+        emit('error', {'message': f'File streaming failed: {str(e)}'})
+
+@socketio.on('list_uploaded_files')
+def handle_list_uploaded_files():
+    """List all uploaded files for the current session"""
+    session_id = request.sid
+    session = session_manager.get_session(session_id)
+    
+    if not session:
+        emit('error', {'message': 'Session not found'})
+        return
+    
+    try:
+        files = source_manager.get_session_files(session_id)
+        emit('status', {
+            'code': 'FILES_LISTED',
+            'message': f'Found {len(files)} uploaded files',
+            'files': files,
+            'total_files': len(files)
+        })
+        
+    except Exception as e:
+        logging.error(f"List files error: {e}")
+        emit('error', {'message': f'Failed to list files: {str(e)}'})
 
 if __name__ == '__main__':
     print(f"Starting WebSocket server...")
