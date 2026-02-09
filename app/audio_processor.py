@@ -30,7 +30,6 @@ class AudioProcessor:
 
         self.renderer = None
         self.listener = None
-        self.environment = None
         self.sources = {}
         self.source_buffers = {}  # Store audio buffers for each source
         self.listener_pose = {'position': {'x': 0, 'y': 0, 'z': 0}}  # Store listener pose for placeholder mode
@@ -62,9 +61,6 @@ class AudioProcessor:
 
             self.listener = self.renderer.create_listener()
             print("[AudioProcessor] Listener created")
-
-            # Add environment for room acoustics (optional, but improves realism)
-            self.environment = self.renderer.add_environment()
             
             hrtf_path = os.path.join('hrtf_datasets', hrtf_file)
             print(f"[AudioProcessor] Loading HRTF from: {hrtf_path}")
@@ -75,14 +71,6 @@ class AudioProcessor:
                     print(f"[AudioProcessor] HRTF loaded successfully: {hrtf_file}")
                     self.listener.enable_spatial_processing()
                     self.listener.enable_distance_attenuation()
-                    
-                    # Try to load BRIR for room acoustics if available
-                    brir_path = os.path.join('hrtf_datasets', 'BRIR_medium.sofa')
-                    if os.path.exists(brir_path):
-                        env_success = self.environment.load_brir_from_sofa(brir_path)
-                        if env_success:
-                            print("[AudioProcessor] BRIR loaded for room acoustics")
-                    
                     print("[AudioProcessor] Spatial processing enabled")
                 else:
                     print(f"[AudioProcessor] Failed to load HRTF: {hrtf_file}")
@@ -93,7 +81,7 @@ class AudioProcessor:
 
             self.is_initialised = True
             self.placeholder_mode = False
-            print("[AudioProcessor] py3dti initialised successfully with full spatial capabilities")
+            print("[AudioProcessor] py3dti initialised successfully with HRTF spatial processing")
             return True
         
         except Exception as e:
@@ -122,7 +110,7 @@ class AudioProcessor:
             return True
 
         try:
-            # Create py3dti source (following tutorial approach)
+            # Create py3dti source
             source = self.renderer.create_source()
             source.set_position(position['x'], position['y'], position['z'])
 
@@ -363,5 +351,4 @@ class AudioProcessor:
         self.placeholder_mode = False
         self.renderer = None
         self.listener = None
-        self.environment = None
         print("[AudioProcessor] Cleanup complete")
