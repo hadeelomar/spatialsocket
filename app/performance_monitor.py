@@ -36,6 +36,7 @@ class PerformanceMonitor:
                     'frames_processed': 0,
                     'bytes_in': 0,
                     'bytes_out': 0,
+                    'source_count': 0,
                     'last_activity': timestamp
                 }
             
@@ -52,6 +53,7 @@ class PerformanceMonitor:
                     'frames_processed': 0,
                     'bytes_in': 0,
                     'bytes_out': 0,
+                    'source_count': 0,
                     'last_activity': timestamp,
                     'processing_start': timestamp
                 }
@@ -102,6 +104,24 @@ class PerformanceMonitor:
             self.bytes_out += count
             if session_id in self.session_metrics:
                 self.session_metrics[session_id]['bytes_out'] += count
+    
+    def increment_source_count(self, session_id: str):
+        """Increment source counter for a session"""
+        with self.lock:
+            if session_id in self.session_metrics:
+                self.session_metrics[session_id]['source_count'] += 1
+    
+    def decrement_source_count(self, session_id: str):
+        """Decrement source counter for a session"""
+        with self.lock:
+            if session_id in self.session_metrics:
+                self.session_metrics[session_id]['source_count'] = max(0, self.session_metrics[session_id]['source_count'] - 1)
+    
+    def set_source_count(self, session_id: str, count: int):
+        """Set source counter for a session"""
+        with self.lock:
+            if session_id in self.session_metrics:
+                self.session_metrics[session_id]['source_count'] = max(0, count)
 
     def increment_errors(self):
         """Increment error counter"""
