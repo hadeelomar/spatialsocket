@@ -1,0 +1,3011 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SpatialSocket - Server-Side Spatial Audio API</title>
+<meta name="description" content="Stream HRTF-processed binaural audio to any client over WebSocket in real-time. The spatial audio API for developers.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.2/dist/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+
+:root{
+  --bg:#ffffff;
+  --bg1:#fafafa;
+  --bg2:#f5f4f2;
+  --surface:rgba(0,0,0,0.02);
+  --border:#e4e4e7;
+  --border2:#d1d1d6;
+  --text:#09090b;
+  --text2:#52525b;
+  --text3:#a1a1aa;
+  --primary:#7c3aed;
+  --primary-l:#8b5cf6;
+  --blue:#2563eb;
+  --green:#16a34a;
+  --red:#dc2626;
+  --amber:#d97706;
+}
+
+body{
+  font-family:'Figtree',sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  font-size:15px;
+  line-height:1.6;
+  overflow-x:hidden;
+  font-weight:400;
+}
+
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+/* navbar */
+#navbar{
+  position:fixed;top:0;left:0;right:0;z-index:100;
+  padding:0 40px;height:64px;
+  display:flex;align-items:center;justify-content:space-between;
+  transition:background .3s, border-color .3s;
+  border-bottom:1px solid transparent;
+}
+#navbar{
+  background:rgba(255,255,255,0.88);
+  backdrop-filter:blur(20px);
+  -webkit-backdrop-filter:blur(20px);
+  border-color:var(--border);
+}
+.nav-brand{
+  font-size:18px;font-weight:600;
+  text-decoration:none;letter-spacing:-0.02em;
+  color:var(--text)
+}
+.nav-links{
+  display:flex;align-items:center;gap:4px;
+  list-style:none;
+}
+.nav-links a{
+  padding:6px 14px;border-radius:8px;
+  font-size:14px;font-weight:400;
+  text-decoration:none;
+  transition:color .2s,background .2s;
+  color:var(--text2)
+}
+.nav-links a:hover{color:var(--text);background:var(--surface)}
+.nav-cta{
+  padding:8px 18px;border-radius:8px;
+  background:var(--text);color:#fff !important;
+  font-size:14px;font-weight:500;
+  text-decoration:none;
+  transition:opacity .2s;
+}
+.nav-cta:hover{opacity:0.85}
+
+/* sections */
+section{padding:100px 0}
+.container{max-width:1200px;margin:0 auto;padding:0 40px}
+
+/* scroll fade-in */
+.fade-in{opacity:0;transform:translateY(20px);transition:opacity .6s ease,transform .6s ease}
+.fade-in.visible{opacity:1;transform:translateY(0)}
+
+/* hero */
+#hero{
+  min-height:100vh;
+  display:flex;align-items:center;justify-content:center;
+  padding:80px 0 60px;
+  position:relative;
+  overflow:hidden;
+  background:var(--bg);
+}
+#hero > .container{ width:100%; }
+/* animated dot grid */
+#hero::before{
+  content:'';
+  position:absolute;inset:0;
+  background-image:radial-gradient(rgba(0,0,0,0.06) 1px, transparent 1px);
+  background-size:24px 24px;
+  animation:grid-pan 8s linear infinite;
+  pointer-events:none;
+  z-index:0;
+}
+/* hero blobs */
+.hero-blob{
+  position:absolute;
+  border-radius:50%;
+  filter:blur(90px);
+  opacity:0.22;
+  pointer-events:none;
+  will-change:transform;
+  z-index:0;
+}
+.hero-blob-blue{
+  width:560px;height:560px;
+  background:#3b82f6;
+  top:-60px;left:-80px;
+}
+.hero-blob-violet{
+  width:460px;height:460px;
+  background:#8b5cf6;
+  bottom:-40px;right:-60px;
+}
+@keyframes grid-pan{
+  0%{background-position:0 0}
+  100%{background-position:24px 24px}
+}
+.hero-inner{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:100%;
+  min-height:70vh;
+  position:relative;z-index:1;
+}
+.hero-earbud-col{
+  position:absolute;top:50%;transform:translateY(-50%);
+  display:flex;align-items:center;
+}
+.hero-earbud-col.left{left:0}
+.hero-earbud-col.right{right:0}
+
+/* earbud */
+.earbud-wrap{position:relative;display:flex;flex-direction:column;align-items:center;gap:14px}
+.earbud-img-outer{
+  position:relative;
+  width:340px;height:340px;
+  display:flex;align-items:center;justify-content:center;
+}
+.earbud-img{
+  width:270px;height:auto;
+  position:relative;z-index:3;
+  transition:transform .3s,filter .3s;
+}
+.earbud-wrap.left .earbud-img{
+  filter:drop-shadow(0 0 60px rgba(37,99,235,0.6));
+  animation:float-left 6s ease-in-out infinite;
+}
+.earbud-wrap.right .earbud-img{
+  filter:drop-shadow(0 0 60px rgba(124,58,237,0.6));
+  animation:float-right 6.5s ease-in-out infinite;
+}
+.earbud-wrap:hover .earbud-img{
+  transform:scale(1.06) !important;
+}
+.earbud-wrap.left:hover .earbud-img{
+  filter:drop-shadow(0 0 90px rgba(37,99,235,0.9)) !important;
+}
+.earbud-wrap.right:hover .earbud-img{
+  filter:drop-shadow(0 0 90px rgba(124,58,237,0.9)) !important;
+}
+@keyframes float-left{
+  0%,100%{transform:translateY(-20px) rotate(-2deg)}
+  50%{transform:translateY(20px) rotate(2deg)}
+}
+@keyframes float-right{
+  0%,100%{transform:translateY(20px) rotate(2deg)}
+  50%{transform:translateY(-20px) rotate(-2deg)}
+}
+/* rings */
+.earbud-ring{
+  position:absolute;
+  border-radius:50%;
+  border:1.5px dashed;
+  pointer-events:none;
+}
+.earbud-ring-outer{
+  width:315px;height:315px;
+  top:12px;left:12px;
+}
+.earbud-ring-inner{
+  width:250px;height:250px;
+  top:45px;left:45px;
+}
+.earbud-wrap.left .earbud-ring-outer{border-color:rgba(37,99,235,0.3);animation:spin-cw 20s linear infinite}
+.earbud-wrap.left .earbud-ring-inner{border-color:rgba(37,99,235,0.2);animation:spin-ccw 12s linear infinite}
+.earbud-wrap.right .earbud-ring-outer{border-color:rgba(124,58,237,0.3);animation:spin-ccw 20s linear infinite}
+.earbud-wrap.right .earbud-ring-inner{border-color:rgba(124,58,237,0.2);animation:spin-cw 12s linear infinite}
+@keyframes spin-cw{to{transform:rotate(360deg)}}
+@keyframes spin-ccw{to{transform:rotate(-360deg)}}
+
+.earbud-label{
+  display:flex;align-items:center;gap:7px;
+  font-size:12px;font-weight:400;letter-spacing:0.06em;
+  text-transform:uppercase;color:var(--text3);
+}
+.earbud-dot{width:6px;height:6px;border-radius:50%;animation:pulse-dot 2s ease-in-out infinite}
+.earbud-wrap.left .earbud-dot{background:#2563eb;box-shadow:0 0 8px #2563eb}
+.earbud-wrap.right .earbud-dot{background:#8b5cf6;box-shadow:0 0 8px #8b5cf6;animation-delay:-1s}
+@keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(0.6)}}
+
+/* hero center */
+.hero-center{text-align:center;padding:0 24px}
+.hero-badge{
+  display:inline-flex;align-items:center;gap:8px;
+  border:1px solid var(--border2);
+  border-radius:20px;padding:5px 14px;
+  font-size:12px;font-weight:400;color:var(--text2);
+  letter-spacing:0.04em;
+  margin-bottom:28px;
+}
+.hero-badge-dot{width:5px;height:5px;border-radius:50%;background:var(--primary);animation:pulse-dot 1.8s ease-in-out infinite}
+.hero-h1{
+  font-size:clamp(44px,6vw,72px);
+  font-weight:500;letter-spacing:-0.04em;line-height:1.05;
+  color:var(--text);
+  margin-bottom:18px;
+}
+.hero-sub{
+  font-size:17px;color:var(--text2);
+  line-height:1.7;font-weight:300;
+  max-width:440px;margin:0 auto 28px;
+}
+.hero-pills{
+  display:flex;flex-wrap:wrap;justify-content:center;gap:8px;
+  margin-bottom:36px;
+}
+.hero-pill{
+  padding:5px 14px;border-radius:20px;
+  border:1px solid var(--border);
+  font-size:13px;color:var(--text2);font-weight:400;
+}
+.hero-btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.btn-primary{
+  padding:13px 28px;border-radius:10px;
+  background:var(--text);color:#fff;
+  font-size:15px;font-weight:500;
+  font-family:'Figtree',sans-serif;
+  text-decoration:none;
+  border:none;cursor:pointer;
+  transition:all .2s;display:inline-flex;align-items:center;gap:8px;
+}
+.btn-primary:hover{opacity:0.85;transform:translateY(-1px)}
+.btn-outline{
+  padding:13px 28px;border-radius:10px;
+  background:transparent;color:var(--text);
+  font-size:15px;font-weight:400;
+  font-family:'Figtree',sans-serif;
+  text-decoration:none;
+  border:1px solid var(--border2);cursor:pointer;
+  transition:all .2s;display:inline-flex;align-items:center;gap:8px;
+}
+.btn-outline:hover{border-color:var(--text);transform:translateY(-1px)}
+
+/* scroll indicator */
+.scroll-indicator{
+  position:absolute;bottom:32px;left:50%;transform:translateX(-50%);
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+  color:var(--text3);font-size:11px;font-weight:400;letter-spacing:0.05em;
+  text-transform:uppercase;z-index:1;
+}
+.scroll-chevron{
+  animation:bounce-down 2s ease-in-out infinite;
+  display:flex;align-items:center;justify-content:center;
+}
+@keyframes bounce-down{
+  0%,100%{transform:translateY(0);opacity:0.3}
+  50%{transform:translateY(6px);opacity:0.7}
+}
+
+/* section headers */
+.section-label{
+  font-size:12px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;
+  color:var(--text3);margin-bottom:12px;
+}
+.section-title{
+  font-size:clamp(28px,3.5vw,40px);font-weight:500;
+  letter-spacing:-0.02em;line-height:1.15;
+  color:var(--text);margin-bottom:14px;
+}
+.section-sub{font-size:16px;color:var(--text2);max-width:520px;line-height:1.7;font-weight:400}
+
+/* features */
+#overview{background:var(--bg)}
+.bento-grid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  grid-auto-rows:280px;
+  gap:16px;
+  margin-top:56px;
+}
+.bento-card{
+  background:var(--bg);
+  border:1px solid var(--border);
+  border-radius:16px;
+  box-shadow:0 0 0 1px rgba(0,0,0,0.03),0 2px 8px rgba(0,0,0,0.04);
+  overflow:hidden;
+  position:relative;
+  cursor:default;
+  transition:box-shadow .3s,transform .3s;
+}
+.bento-card:hover{
+  box-shadow:0 0 0 1px rgba(0,0,0,0.06),0 8px 32px rgba(0,0,0,0.08);
+}
+/* bento spans */
+.bento-A{grid-column:2/3;grid-row:1/3}
+.bento-B{grid-column:1/2;grid-row:1/2}
+.bento-C{grid-column:1/2;grid-row:2/3}
+.bento-D{grid-column:3/4;grid-row:1/2}
+.bento-E{grid-column:3/4;grid-row:2/3}
+
+.bento-deco{
+  position:absolute;top:0;left:0;right:0;height:120px;
+  overflow:hidden;pointer-events:none;opacity:0.5;
+}
+.bento-content{
+  position:absolute;
+  bottom:0;left:0;right:0;
+  padding:24px;
+  transition:transform .35s cubic-bezier(0.4,0,0.2,1);
+}
+.bento-card:hover .bento-content{transform:translateY(-40px)}
+.bento-icon{
+  width:40px;height:40px;margin-bottom:14px;
+  color:var(--text);
+}
+.bento-title{font-size:16px;font-weight:500;color:var(--text);margin-bottom:6px;letter-spacing:-0.01em}
+.bento-desc{font-size:13px;color:var(--text2);line-height:1.6;font-weight:400}
+.bento-cta{
+  position:absolute;bottom:0;left:24px;right:24px;
+  padding:0 0 20px;
+  font-size:13px;color:var(--primary);font-weight:500;
+  transform:translateY(10px);
+  opacity:0;
+  transition:transform .35s cubic-bezier(0.4,0,0.2,1), opacity .3s;
+}
+.bento-card:hover .bento-cta{transform:translateY(0);opacity:1}
+
+/* decorative patterns */
+.deco-diagonal{
+  background-image:repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 6px,
+    rgba(0,0,0,0.04) 6px,
+    rgba(0,0,0,0.04) 7px
+  );
+  width:100%;height:100%;
+}
+.deco-dots{
+  background-image:radial-gradient(rgba(0,0,0,0.08) 1px, transparent 1px);
+  background-size:12px 12px;
+  width:100%;height:100%;
+}
+.deco-circles{
+  display:flex;align-items:center;justify-content:center;
+  width:100%;height:100%;
+}
+.deco-circles-inner{
+  position:relative;width:120px;height:120px;
+}
+.deco-circle{
+  position:absolute;border-radius:50%;border:1px solid rgba(0,0,0,0.06);
+  top:50%;left:50%;transform:translate(-50%,-50%);
+}
+.deco-waves{
+  width:100%;height:100%;
+  background-image:
+    repeating-linear-gradient(0deg,transparent,transparent 8px,rgba(0,0,0,0.04) 8px,rgba(0,0,0,0.04) 9px);
+}
+.deco-grid-sq{
+  background-image:
+    linear-gradient(rgba(0,0,0,0.05) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(0,0,0,0.05) 1px,transparent 1px);
+  background-size:16px 16px;
+  width:100%;height:100%;
+}
+
+/* use cases */
+#use-cases{background:var(--bg1)}
+.uc-bento{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:12px;
+  margin-top:56px;
+}
+.uc-card{
+  background:var(--bg);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:22px 20px;
+  box-shadow:0 0 0 1px rgba(0,0,0,0.02),0 1px 4px rgba(0,0,0,0.04);
+  transition:box-shadow .2s,transform .2s;
+}
+.uc-card:hover{
+  box-shadow:0 0 0 1px rgba(0,0,0,0.06),0 6px 20px rgba(0,0,0,0.07);
+  transform:translateY(-2px);
+}
+.uc-card.span2{grid-column:span 2}
+.uc-icon-wrap{
+  width:34px;height:34px;
+  border-radius:9px;
+  background:var(--bg1);
+  border:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;
+  margin-bottom:14px;
+  color:var(--text2);
+}
+.uc-title{font-size:14px;font-weight:500;color:var(--text);margin-bottom:6px;letter-spacing:-0.01em}
+.uc-desc{font-size:13px;color:var(--text2);line-height:1.6;font-weight:400}
+
+/* api docs */
+#api{background:var(--bg)}
+.api-tabs{
+  display:flex;gap:4px;
+  background:var(--bg1);border:1px solid var(--border);
+  border-radius:12px;padding:4px;
+  width:fit-content;margin-bottom:28px;
+}
+.api-tab{
+  padding:8px 20px;border-radius:8px;
+  font-size:14px;font-weight:400;color:var(--text2);
+  cursor:pointer;transition:all .2s;border:none;background:none;
+  font-family:'Figtree',sans-serif;
+}
+.api-tab.active{
+  background:var(--text);color:#fff;
+}
+.api-tab:hover:not(.active){color:var(--text);background:var(--surface)}
+.api-tab-panel{display:none}
+.api-tab-panel.active{display:block}
+.api-table{
+  width:100%;border-collapse:collapse;
+  background:var(--bg);border:1px solid var(--border);
+  border-radius:12px;overflow:hidden;
+  margin-bottom:24px;
+  font-size:14px;
+}
+.api-table th{
+  padding:12px 16px;text-align:left;
+  font-size:11px;font-weight:500;letter-spacing:0.07em;text-transform:uppercase;
+  color:var(--text3);background:var(--bg1);
+  border-bottom:1px solid var(--border);
+}
+.api-table td{
+  padding:12px 16px;
+  border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top;
+}
+.api-table tr:last-child td{border-bottom:none}
+.api-table tr:hover td{background:var(--bg1)}
+.code-tag{
+  font-family:'JetBrains Mono',monospace;font-size:12px;
+  background:rgba(124,58,237,0.07);border:1px solid rgba(124,58,237,0.15);
+  color:var(--primary);border-radius:5px;
+  padding:2px 7px;white-space:nowrap;
+}
+.method-tag{
+  font-family:'JetBrains Mono',monospace;font-size:11px;
+  padding:2px 7px;border-radius:4px;font-weight:500;
+}
+.method-post{background:rgba(22,163,74,0.08);color:var(--green);border:1px solid rgba(22,163,74,0.2)}
+.method-get{background:rgba(37,99,235,0.08);color:var(--blue);border:1px solid rgba(37,99,235,0.2)}
+.status-badge{
+  font-family:'JetBrains Mono',monospace;font-size:11px;
+  padding:3px 8px;border-radius:5px;
+  background:rgba(37,99,235,0.07);border:1px solid rgba(37,99,235,0.15);
+  color:var(--blue);white-space:nowrap;
+}
+.direction-badge{
+  font-size:10px;font-weight:500;letter-spacing:0.05em;
+  padding:2px 8px;border-radius:4px;white-space:nowrap;
+}
+.dir-out{background:rgba(124,58,237,0.07);color:var(--primary);border:1px solid rgba(124,58,237,0.15)}
+.dir-in{background:rgba(22,163,74,0.07);color:var(--green);border:1px solid rgba(22,163,74,0.15)}
+.api-section-label{
+  font-size:12px;font-weight:500;letter-spacing:0.07em;text-transform:uppercase;
+  color:var(--text3);margin:24px 0 12px;
+}
+.code-block{
+  background:#0f0f18;border:1px solid rgba(255,255,255,0.06);
+  border-radius:12px;padding:24px;
+  font-family:'JetBrains Mono',monospace;
+  font-size:13px;line-height:1.8;
+  color:rgba(240,240,240,0.65);overflow-x:auto;
+  position:relative;white-space:pre;font-variant-ligatures:none;
+}
+.code-block .kw{color:#c792ea}
+.code-block .fn{color:#82aaff}
+.code-block .str{color:#c3e88d}
+.code-block .cm{color:#546e7a;font-style:italic}
+.code-block .num{color:#f78c6c}
+.code-block .prop{color:#89ddff}
+.code-block-label{
+  position:absolute;top:12px;right:16px;
+  font-size:11px;color:rgba(255,255,255,0.3);
+  font-family:'Figtree',sans-serif;
+}
+
+/* playground */
+#playground{background:var(--bg2);padding:80px 0 60px}
+.pg-header{text-align:center;margin-bottom:40px}
+
+/* connection bar */
+.conn-bar{
+  background:var(--bg);border:1px solid var(--border);
+  border-radius:12px;padding:12px 16px;
+  display:flex;align-items:center;gap:10px;
+  margin-bottom:20px;flex-wrap:wrap;
+}
+.conn-bar input{
+  flex:1;min-width:200px;
+  padding:8px 12px;border-radius:8px;
+  background:var(--bg1);border:1px solid var(--border2);
+  color:var(--text);font-size:13px;font-family:'JetBrains Mono',monospace;
+  outline:none;transition:box-shadow .2s;
+}
+.conn-bar input:focus{box-shadow:0 0 0 2px var(--primary)}
+.conn-dot{width:9px;height:9px;border-radius:50%;background:var(--text3);flex-shrink:0;transition:all .3s}
+.conn-dot.on{background:var(--green);box-shadow:0 0 8px var(--green)}
+.conn-dot.err{background:var(--red)}
+#pg-conn-text{font-size:13px;color:var(--text2);white-space:nowrap}
+#pg-sid-pill{
+  display:none;background:rgba(124,58,237,0.08);border:1px solid rgba(124,58,237,0.2);
+  border-radius:6px;padding:3px 10px;
+  font-size:11px;color:var(--primary);font-family:'JetBrains Mono',monospace;
+}
+.pg-btn{
+  padding:8px 16px;border-radius:8px;border:1px solid var(--border2);
+  background:var(--bg1);color:var(--text);
+  font-size:13px;font-weight:500;cursor:pointer;
+  transition:all .2s;white-space:nowrap;font-family:'Figtree',sans-serif;
+}
+.pg-btn:hover:not(:disabled){border-color:var(--primary);color:var(--primary);background:rgba(124,58,237,0.06)}
+.pg-btn:disabled{opacity:0.35;cursor:not-allowed}
+.pg-btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+.pg-btn.primary:hover:not(:disabled){background:var(--primary-l);border-color:var(--primary-l)}
+.pg-btn.danger{border-color:rgba(220,38,38,0.25);color:var(--red)}
+.pg-btn.danger:hover:not(:disabled){background:rgba(220,38,38,0.06)}
+.pg-btn.success{border-color:rgba(22,163,74,0.25);color:var(--green)}
+.pg-btn.success:hover:not(:disabled){background:rgba(22,163,74,0.06)}
+
+.pg-layout{
+  display:grid;
+  grid-template-columns:260px 1fr 260px;
+  gap:16px;align-items:start;
+}
+.pg-card{
+  background:var(--bg1);border:1px solid var(--border);
+  border-radius:14px;padding:16px;
+  margin-bottom:14px;
+}
+.pg-card:last-child{margin-bottom:0}
+.pg-card-title{
+  font-size:11px;font-weight:500;letter-spacing:0.07em;
+  text-transform:uppercase;color:var(--text3);
+  margin-bottom:14px;
+  display:flex;align-items:center;gap:8px;
+}
+.pg-card-title .step-dot{
+  width:18px;height:18px;border-radius:50%;
+  background:var(--primary);color:#fff;
+  font-size:10px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.pg-card-title .step-dot.done{background:var(--green)}
+.pg-label{display:block;font-size:11px;color:var(--text2);margin-bottom:4px;margin-top:10px}
+.pg-label:first-of-type{margin-top:0}
+.pg-input{
+  width:100%;padding:7px 10px;border-radius:8px;
+  background:var(--bg);border:1px solid var(--border2);
+  color:var(--text);font-size:13px;outline:none;
+  transition:box-shadow .2s;font-family:'Figtree',sans-serif;
+}
+.pg-input:focus{box-shadow:0 0 0 2px var(--primary)}
+.pg-input[type=number]{font-family:'JetBrains Mono',monospace}
+.pg-select{
+  width:100%;padding:7px 10px;border-radius:8px;
+  background:var(--bg);border:1px solid var(--border2);
+  color:var(--text);font-size:13px;outline:none;
+  transition:box-shadow .2s;font-family:'Figtree',sans-serif;
+}
+.pg-select:focus{box-shadow:0 0 0 2px var(--primary)}
+.pg-check-row{
+  display:flex;align-items:center;gap:8px;
+  margin-top:8px;font-size:13px;color:var(--text2);cursor:pointer;
+}
+.pg-check-row input[type=checkbox]{width:auto;accent-color:var(--primary);cursor:pointer}
+.pg-btn-full{
+  width:100%;padding:9px;border-radius:8px;border:1px solid var(--border2);
+  background:var(--bg);color:var(--text);
+  font-size:13px;font-weight:500;cursor:pointer;
+  transition:all .2s;margin-top:10px;font-family:'Figtree',sans-serif;
+}
+.pg-btn-full:hover:not(:disabled){border-color:var(--primary);color:var(--primary);background:rgba(124,58,237,0.05)}
+.pg-btn-full:disabled{opacity:0.35;cursor:not-allowed}
+.pg-btn-full.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+.pg-btn-full.primary:hover:not(:disabled){background:var(--primary-l);border-color:var(--primary-l)}
+.pg-divider{border:none;border-top:1px solid var(--border);margin:14px 0}
+.pg-status-text{font-size:11px;color:var(--text3);margin-top:5px}
+
+/* source items */
+.src-item{
+  background:var(--bg);border:1px solid var(--border);
+  border-radius:9px;padding:10px 12px;
+  margin-top:8px;cursor:pointer;
+  transition:border-color .2s;position:relative;
+}
+.src-item.active{border-color:var(--primary)}
+.src-item:hover{border-color:var(--border2)}
+.src-item-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.src-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.src-name{font-size:13px;font-weight:500;flex:1;color:var(--text)}
+.src-del{
+  position:absolute;top:8px;right:8px;
+  background:none;border:none;color:var(--text3);cursor:pointer;
+  font-size:13px;transition:color .2s;padding:2px;
+  font-family:'Figtree',sans-serif;
+}
+.src-del:hover{color:var(--red)}
+/* per-source file + playback row */
+.src-file-row{display:flex;align-items:center;gap:6px;margin-top:7px}
+.src-upload-label{
+  flex:1;font-size:11px;color:var(--text3);cursor:pointer;
+  padding:3px 8px;border-radius:6px;border:1px solid var(--border);
+  background:var(--bg1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  max-width:140px;transition:border-color .15s,color .15s;
+}
+.src-upload-label:hover{border-color:var(--primary);color:var(--primary)}
+.src-upload-label.has-file{color:var(--text2);border-color:var(--border2)}
+.src-play-row{display:flex;gap:4px;flex-shrink:0}
+.src-pb-btn{
+  padding:3px 8px;border-radius:6px;border:none;cursor:pointer;
+  font-size:11px;font-family:'Figtree',sans-serif;font-weight:500;
+  transition:opacity .15s;
+}
+.src-pb-btn:hover{opacity:0.8}
+.src-pb-btn.play{background:var(--primary);color:#fff}
+.src-pb-btn.pause{background:var(--amber);color:#fff}
+.src-pb-btn.stop{background:var(--red);color:#fff}
+/* xyz slider row */
+.src-xyz-row{display:flex;flex-direction:column;gap:7px}
+.src-xyz-col{display:flex;align-items:center;gap:8px}
+.src-xyz-label{font-size:10px;color:var(--text3);font-weight:600;width:10px;flex-shrink:0}
+.src-xyz-val{
+  font-size:11px;font-family:'JetBrains Mono',monospace;
+  color:var(--text2);width:34px;text-align:right;flex-shrink:0;
+}
+.src-slider{
+  flex:1;-webkit-appearance:none;appearance:none;
+  height:3px;border-radius:2px;
+  background:var(--border2);outline:none;cursor:pointer;
+  transition:background .15s;
+}
+.src-slider::-webkit-slider-thumb{
+  -webkit-appearance:none;appearance:none;
+  width:13px;height:13px;border-radius:50%;
+  background:var(--primary);cursor:pointer;
+  box-shadow:0 0 0 3px rgba(124,58,237,0.15);
+}
+.src-slider::-moz-range-thumb{
+  width:13px;height:13px;border-radius:50%;
+  background:var(--primary);cursor:pointer;border:none;
+  box-shadow:0 0 0 3px rgba(124,58,237,0.15);
+}
+.src-slider:hover{background:var(--border2)}
+.src-slider:focus{background:var(--primary-l)}
+
+.add-src-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px}
+.add-src-xyz-label{font-size:10px;color:var(--text3);text-align:center;margin-bottom:2px;font-weight:500}
+
+/* three.js canvas wrap */
+.scene-outer{
+  background:#0f0f18;border:1px solid var(--border);
+  border-radius:14px;overflow:hidden;position:relative;
+}
+#pg-canvas{display:block;width:100%;cursor:crosshair}
+.scene-hint-bar{
+  position:absolute;bottom:14px;left:50%;transform:translateX(-50%);
+  font-size:11px;color:rgba(255,255,255,0.3);
+  background:rgba(3,3,3,0.75);backdrop-filter:blur(8px);
+  border:1px solid rgba(255,255,255,0.07);border-radius:20px;
+  padding:4px 14px;white-space:nowrap;pointer-events:none;
+  font-family:'Figtree',sans-serif;
+}
+.scene-hint-bar kbd{
+  font-family:'JetBrains Mono',monospace;font-size:10px;
+  background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.18);
+  border-radius:3px;padding:1px 4px;color:rgba(255,255,255,0.55);
+}
+.scene-coords{
+  position:absolute;top:12px;right:14px;
+  font-size:11px;color:#8b5cf6;
+  font-family:'JetBrains Mono',monospace;
+  background:rgba(3,3,3,0.75);backdrop-filter:blur(8px);
+  border:1px solid rgba(255,255,255,0.07);border-radius:6px;
+  padding:4px 10px;pointer-events:none;
+  display:none;
+}
+.stream-card{margin-bottom:14px}
+.pg-progress{
+  height:3px;border-radius:2px;
+  background:var(--border);overflow:hidden;margin-top:8px;
+}
+.pg-progress-fill{height:100%;background:var(--primary);border-radius:2px;width:0%;transition:width .1s}
+#pg-log{
+  height:260px;overflow-y:auto;
+  font-family:'JetBrains Mono',monospace;font-size:11px;
+  padding:4px;
+}
+.log-entry{
+  display:flex;gap:7px;align-items:flex-start;
+  padding:2px 6px;border-radius:4px;margin-bottom:1px;
+}
+.log-entry:hover{background:rgba(0,0,0,0.03)}
+.log-time{color:var(--text3);white-space:nowrap;min-width:50px;flex-shrink:0}
+.log-dir{font-weight:500;white-space:nowrap;flex-shrink:0}
+.log-dir.out{color:var(--primary)}
+.log-dir.in{color:var(--blue)}
+.log-dir.err{color:var(--red)}
+.log-dir.sys{color:var(--amber)}
+.log-msg{color:var(--text2);word-break:break-all}
+.log-hdr-row{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:8px;
+}
+.log-clear-btn{
+  background:none;border:1px solid var(--border);border-radius:5px;
+  padding:2px 8px;font-size:10px;color:var(--text3);cursor:pointer;
+  font-family:'Figtree',sans-serif;transition:all .2s;
+}
+.log-clear-btn:hover{border-color:var(--border2);color:var(--text2)}
+.tag{display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:400}
+.tag.green{background:rgba(22,163,74,.08);color:var(--green);border:1px solid rgba(22,163,74,.2)}
+.tag.amber{background:rgba(217,119,6,.08);color:var(--amber);border:1px solid rgba(217,119,6,.2)}
+.tag.red{background:rgba(220,38,38,.08);color:var(--red);border:1px solid rgba(220,38,38,.2)}
+.tag.blue{background:rgba(37,99,235,.08);color:var(--blue);border:1px solid rgba(37,99,235,.2)}
+
+/* footer */
+footer{
+  background:var(--bg1);
+  border-top:1px solid var(--border);
+  padding:48px 0 32px;
+}
+.footer-inner{
+  display:flex;align-items:flex-start;justify-content:space-between;
+  gap:40px;margin-bottom:36px;flex-wrap:wrap;
+}
+.footer-brand{
+  font-size:17px;font-weight:600;color:var(--text);
+  margin-bottom:8px;letter-spacing:-0.02em;
+}
+.footer-tagline{font-size:13px;color:var(--text3);max-width:260px;line-height:1.6;font-weight:300}
+.footer-links{display:flex;gap:28px;list-style:none;margin-top:4px}
+.footer-links a{font-size:14px;color:var(--text2);text-decoration:none;font-weight:400;transition:color .2s}
+.footer-links a:hover{color:var(--text)}
+.footer-copy{font-size:13px;color:var(--text3);text-align:center;border-top:1px solid var(--border);padding-top:24px;font-weight:300}
+
+/* responsive */
+@media(max-width:1100px){
+  .pg-layout{grid-template-columns:220px 1fr 220px}
+  .earbud-img-outer{width:300px;height:300px}
+  .earbud-img{width:240px}
+  .earbud-ring-outer{width:280px;height:280px;top:10px;left:10px}
+  .earbud-ring-inner{width:220px;height:220px;top:40px;left:40px}
+  .uc-bento{grid-template-columns:repeat(2,1fr)}
+  .uc-card.span2{grid-column:span 1}
+}
+@media(max-width:900px){
+  .bento-grid{grid-template-columns:1fr 1fr;grid-auto-rows:auto}
+  .bento-A,.bento-B,.bento-C,.bento-D,.bento-E{grid-column:auto;grid-row:auto}
+  .bento-content{position:relative;transform:none !important}
+  .bento-deco{display:none}
+  .hero-inner{min-height:auto}
+  .hero-earbud-col{display:none}
+  .pg-layout{grid-template-columns:1fr;grid-template-rows:auto auto auto}
+  #navbar{padding:0 20px}
+  .nav-links{display:none}
+  .container{padding:0 20px}
+}
+@media(max-width:640px){
+  .uc-bento{grid-template-columns:1fr}
+  section{padding:60px 0}
+  .bento-grid{grid-template-columns:1fr}
+}
+
+/* performance benchmark */
+#performance{background:var(--bg1)}
+.bench-config{
+  display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;
+  padding:20px 24px;background:var(--bg);border:1px solid var(--border);
+  border-radius:12px;margin-top:40px;
+}
+.bench-cfg-group{display:flex;flex-direction:column;gap:4px}
+.bench-cfg-group label{font-size:11px;color:var(--text3);font-weight:500;letter-spacing:.06em;text-transform:uppercase}
+.bench-cfg-group input[type=text],.bench-cfg-group input[type=number]{
+  padding:7px 11px;border-radius:7px;border:1px solid var(--border2);
+  background:var(--bg1);color:var(--text);font-size:13px;
+  font-family:'JetBrains Mono',monospace;outline:none;
+  transition:box-shadow .2s;
+}
+.bench-cfg-group input:focus{box-shadow:0 0 0 2px rgba(124,58,237,.2)}
+.bench-run-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.bench-btn{
+  padding:9px 20px;border-radius:8px;border:none;cursor:pointer;
+  font-size:13px;font-weight:500;font-family:'Figtree',sans-serif;
+  transition:all .2s;display:inline-flex;align-items:center;gap:7px;
+}
+.bench-btn:disabled{opacity:.45;cursor:not-allowed}
+.bench-btn.ws{background:#2563eb;color:#fff}.bench-btn.ws:hover:not(:disabled){background:#1d4ed8}
+.bench-btn.http{background:#7c3aed;color:#fff}.bench-btn.http:hover:not(:disabled){background:#6d28d9}
+.bench-btn.cmp{background:var(--text);color:#fff}.bench-btn.cmp:hover:not(:disabled){opacity:.85}
+.bench-results{margin-top:28px}
+.bench-tabs-row{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:24px}
+.bench-tab{
+  padding:9px 18px;border-radius:8px 8px 0 0;
+  background:none;border:none;cursor:pointer;
+  font-size:13px;font-weight:400;color:var(--text2);
+  font-family:'Figtree',sans-serif;transition:color .15s,background .15s;
+  border-bottom:2px solid transparent;margin-bottom:-1px;
+}
+.bench-tab:hover{color:var(--text);background:var(--surface)}
+.bench-tab.active{color:var(--primary);border-bottom-color:var(--primary);font-weight:500}
+.bench-panel{display:none}.bench-panel.active{display:block}
+.bench-status-bar{
+  font-size:12px;color:var(--text2);padding:8px 12px;
+  background:var(--surface);border-radius:6px;margin-bottom:16px;
+  border:1px solid var(--border);min-height:32px;display:flex;align-items:center;gap:8px;
+}
+.bench-spinner{
+  width:12px;height:12px;border-radius:50%;flex-shrink:0;
+  border:2px solid var(--border2);border-top-color:var(--primary);
+  animation:bench-spin .7s linear infinite;
+}
+@keyframes bench-spin{to{transform:rotate(360deg)}}
+.bench-cards{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+.bench-card{
+  flex:1;min-width:130px;padding:14px 16px;
+  border-radius:10px;background:var(--bg);border:1px solid var(--border);
+}
+.bench-card-label{font-size:11px;color:var(--text3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:6px}
+.bench-card-val{font-size:22px;font-weight:500;letter-spacing:-.03em;color:var(--text);font-family:'JetBrains Mono',monospace}
+.bench-card-unit{font-size:12px;color:var(--text2);margin-left:3px}
+.bench-card-sub{font-size:11px;color:var(--text3);margin-top:2px}
+.bench-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.bench-tbl th{
+  text-align:left;padding:8px 12px;
+  font-size:11px;font-weight:500;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--text3);border-bottom:1px solid var(--border);background:var(--bg1);
+}
+.bench-tbl td{padding:9px 12px;border-bottom:1px solid var(--border);color:var(--text)}
+.bench-tbl tr:last-child td{border-bottom:none}
+.bench-tbl tr:hover td{background:var(--surface)}
+.bench-mono{font-family:'JetBrains Mono',monospace}
+.bench-badge{
+  display:inline-block;padding:2px 7px;border-radius:4px;
+  font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;margin-left:5px;vertical-align:middle;
+}
+.bench-badge.ws{background:rgba(37,99,235,.1);color:#2563eb}
+.bench-badge.http{background:rgba(124,58,237,.1);color:#7c3aed}
+.bench-badge.tie{background:var(--surface);color:var(--text3)}
+@media(max-width:900px){.bench-config{flex-direction:column}}
+@media(max-width:640px){.bench-cards{flex-direction:column}}
+</style>
+</head>
+<body>
+
+<!-- ═══ NAVBAR ═══════════════════════════════════════════ -->
+<nav id="navbar">
+  <a href="#hero" class="nav-brand">SpatialSocket</a>
+  <ul class="nav-links">
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#use-cases">Use Cases</a></li>
+    <li><a href="#api">API</a></li>
+    <li><a href="#playground">Playground</a></li>
+    <li><a href="#performance">Performance</a></li>
+  </ul>
+  <a href="#playground" class="nav-cta">Get Started →</a>
+</nav>
+
+<!-- ═══ HERO ══════════════════════════════════════════════ -->
+<section id="hero">
+  <div class="hero-blob hero-blob-blue" id="hero-blob-blue"></div>
+  <div class="hero-blob hero-blob-violet" id="hero-blob-violet"></div>
+  <div class="container">
+    <div class="hero-inner">
+
+      <!-- Left earbud -->
+      <div class="hero-earbud-col left">
+        <div class="earbud-wrap left">
+          <div class="earbud-img-outer">
+            <div class="earbud-ring earbud-ring-outer"></div>
+            <div class="earbud-ring earbud-ring-inner"></div>
+            <img class="earbud-img" src="https://ik.imagekit.io/kqmrslzuq/SOUND/left-earbud.png" alt="Left earbud" loading="eager">
+          </div>
+          <div class="earbud-label">
+            <span class="earbud-dot"></span>
+            Left Channel
+          </div>
+        </div>
+      </div>
+
+      <!-- Center text -->
+      <div class="hero-center fade-in">
+        <div class="hero-badge">
+          <span class="hero-badge-dot"></span>
+          Server-Side Spatial Audio
+        </div>
+        <h1 class="hero-h1">SpatialSocket</h1>
+        <p class="hero-sub">Stream HRTF-processed binaural audio to any client in real-time. Drop-in WebSocket API for spatial sound.</p>
+        <div class="hero-pills">
+          <span class="hero-pill">Binaural HRTF</span>
+          <span class="hero-pill">WebSocket</span>
+          <span class="hero-pill">Multi-Source</span>
+          <span class="hero-pill">py3dti</span>
+        </div>
+        <div class="hero-btns">
+          <a href="#playground" class="btn-primary">Try Playground</a>
+          <a href="#api" class="btn-outline">View Docs</a>
+        </div>
+      </div>
+
+      <!-- Right earbud -->
+      <div class="hero-earbud-col right">
+        <div class="earbud-wrap right">
+          <div class="earbud-img-outer">
+            <div class="earbud-ring earbud-ring-outer"></div>
+            <div class="earbud-ring earbud-ring-inner"></div>
+            <img class="earbud-img" src="https://ik.imagekit.io/kqmrslzuq/SOUND/right-earbud.png" alt="Right earbud" loading="eager">
+          </div>
+          <div class="earbud-label">
+            <span class="earbud-dot"></span>
+            Right Channel
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  <!-- Scroll indicator -->
+  <div class="scroll-indicator">
+    <span class="scroll-chevron">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </span>
+  </div>
+</section>
+
+<!-- ═══ FEATURES ══════════════════════════════════════════ -->
+<section id="overview">
+  <div class="container">
+    <div class="fade-in">
+      <div class="section-label">Core Technology</div>
+      <h2 class="section-title">Built for real-time applications</h2>
+      <p class="section-sub">Every component engineered for professional-grade spatial audio at scale.</p>
+    </div>
+    <div class="bento-grid fade-in" style="transition-delay:.1s">
+
+      <!-- A: tall center -->
+      <div class="bento-card bento-A">
+        <div class="bento-deco"><div class="deco-diagonal"></div></div>
+        <div class="bento-content">
+          <div class="bento-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+            </svg>
+          </div>
+          <div class="bento-title">High Fidelity HRTF</div>
+          <div class="bento-desc">Real-time binaural rendering via py3dti with per-source angular resolution. Perceptually accurate sound localisation on any headphones.</div>
+        </div>
+        <div class="bento-cta">Learn more →</div>
+      </div>
+
+      <!-- B: top left -->
+      <div class="bento-card bento-B">
+        <div class="bento-deco"><div class="deco-dots"></div></div>
+        <div class="bento-content">
+          <div class="bento-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1"/>
+            </svg>
+          </div>
+          <div class="bento-title">WebSocket Streaming</div>
+          <div class="bento-desc">Persistent connection, absolute-time paced buffers, sub-30ms round-trip latency.</div>
+        </div>
+        <div class="bento-cta">Learn more →</div>
+      </div>
+
+      <!-- C: bottom left -->
+      <div class="bento-card bento-C">
+        <div class="bento-deco"><div class="deco-circles"><div class="deco-circles-inner"><div class="deco-circle" style="width:40px;height:40px"></div><div class="deco-circle" style="width:70px;height:70px"></div><div class="deco-circle" style="width:100px;height:100px"></div></div></div></div>
+        <div class="bento-content">
+          <div class="bento-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>
+            </svg>
+          </div>
+          <div class="bento-title">Multi-Source Mixing</div>
+          <div class="bento-desc">Unlimited concurrent 3D sources mixed server-side in one render pass.</div>
+        </div>
+        <div class="bento-cta">Learn more →</div>
+      </div>
+
+      <!-- D: top right -->
+      <div class="bento-card bento-D">
+        <div class="bento-deco"><div class="deco-waves"></div></div>
+        <div class="bento-content">
+          <div class="bento-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
+            </svg>
+          </div>
+          <div class="bento-title">Custom HRTF Upload</div>
+          <div class="bento-desc">Upload your own .sofa personalised HRTF for maximum spatial accuracy.</div>
+        </div>
+        <div class="bento-cta">Learn more →</div>
+      </div>
+
+      <!-- E: bottom right -->
+      <div class="bento-card bento-E">
+        <div class="bento-deco"><div class="deco-grid-sq"></div></div>
+        <div class="bento-content">
+          <div class="bento-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          </div>
+          <div class="bento-title">Session Isolation</div>
+          <div class="bento-desc">Each WebSocket session has its own renderer, HRTF, and source map.</div>
+        </div>
+        <div class="bento-cta">Learn more →</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═══ USE CASES ═════════════════════════════════════════ -->
+<section id="use-cases">
+  <div class="container">
+    <div class="fade-in">
+      <div class="section-label">Use Cases</div>
+      <h2 class="section-title">Built for developers building</h2>
+      <p class="section-sub">From gaming to accessibility, SpatialSocket powers immersive audio across every domain.</p>
+    </div>
+    <div class="uc-bento fade-in" style="transition-delay:.1s">
+
+      <!-- row 1 -->
+      <div class="uc-card span2">
+        <div class="uc-icon-wrap">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/></svg>
+        </div>
+        <div class="uc-title">Gaming</div>
+        <div class="uc-desc">Positional audio where it matters. Attach sound sources to game objects and stream spatial audio server-side. No client-side audio engine required.</div>
+      </div>
+      <div class="uc-card">
+        <div class="uc-icon-wrap">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        </div>
+        <div class="uc-title">Virtual Reality</div>
+        <div class="uc-desc">True binaural immersion for VR and AR environments without client-side processing overhead.</div>
+      </div>
+
+      <!-- row 2 -->
+      <div class="uc-card">
+        <div class="uc-icon-wrap">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        </div>
+        <div class="uc-title">Music Production</div>
+        <div class="uc-desc">HRTF-accurate spatial monitoring and mixing. Preview mixes in 3D before final render.</div>
+      </div>
+      <div class="uc-card">
+        <div class="uc-icon-wrap">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10l4.553-2.069A1 1 0 0 1 21 8.82v6.36a1 1 0 0 1-1.447.889L15 14"/><rect x="1" y="6" width="15" height="12" rx="2" ry="2"/></svg>
+        </div>
+        <div class="uc-title">Video Conferencing</div>
+        <div class="uc-desc">Seat remote participants in virtual 3D space, reducing cognitive load in large calls.</div>
+      </div>
+      <div class="uc-card">
+        <div class="uc-icon-wrap">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+        </div>
+        <div class="uc-title">Accessibility</div>
+        <div class="uc-desc">Audio-based spatial navigation for visually impaired users. Precise directional audio cues.</div>
+      </div>
+
+      <!-- row 3 -->
+      <div class="uc-card">
+        <div class="uc-icon-wrap">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        </div>
+        <div class="uc-title">Live Events</div>
+        <div class="uc-desc">Virtual concert stages with per-seat spatial audio. Position performers and audience in 3D.</div>
+      </div>
+      <div class="uc-card span2">
+        <div class="uc-icon-wrap">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        </div>
+        <div class="uc-title">Education and Broadcast Media</div>
+        <div class="uc-desc">Interactive 3D audio environments for spatial learning and simulation. Spatial audio for podcasts, films, and immersive narratives that wrap your audience inside the story.</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═══ API DOCS ═══════════════════════════════════════════ -->
+<section id="api">
+  <div class="container">
+    <div class="api-header fade-in">
+      <div class="section-label">API Reference</div>
+      <h2 class="section-title">Simple, event-driven API</h2>
+      <p class="section-sub">Socket.IO events for real-time control, plus HTTP endpoints for file uploads.</p>
+    </div>
+
+    <div class="fade-in" style="transition-delay:.1s">
+      <div class="api-tabs">
+        <button class="api-tab active" onclick="showApiTab('events',this)">WebSocket Events</button>
+        <button class="api-tab" onclick="showApiTab('http',this)">HTTP Endpoints</button>
+        <button class="api-tab" onclick="showApiTab('codes',this)">Status Codes</button>
+      </div>
+
+      <!-- Events tab -->
+      <div class="api-tab-panel active" id="api-events">
+
+        <div class="api-section-label">Client → Server</div>
+        <table class="api-table">
+          <thead><tr><th style="width:180px">Event</th><th style="width:80px">Dir</th><th style="width:300px">Payload</th><th>Description &amp; Notes</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="code-tag">init_audio</span></td>
+              <td><span class="direction-badge dir-out">emit</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text2)">{ hrtf_file?: string, use_uploaded?: bool }</code></td>
+              <td>
+                Initialise the HRTF renderer for this session. Pass <code style="font-family:'JetBrains Mono',monospace;font-size:12px">hrtf_file</code> (filename inside <code style="font-family:'JetBrains Mono',monospace;font-size:12px">hrtf_datasets/</code> on the server, e.g. <code style="font-family:'JetBrains Mono',monospace;font-size:12px">"p0200.sofa"</code>) <em>or</em> set <code style="font-family:'JetBrains Mono',monospace;font-size:12px">use_uploaded: true</code> to activate the most recently uploaded personalised HRTF for this session. Loading a large SOFA file may take several seconds - the server emits <code style="font-family:'JetBrains Mono',monospace;font-size:12px">AUDIO_LOADING</code> immediately and <code style="font-family:'JetBrains Mono',monospace;font-size:12px">AUDIO_INITIALISED</code> when ready. Must be called before any source can be created or audio streamed.
+              </td>
+            </tr>
+            <tr>
+              <td><span class="code-tag">create_source</span></td>
+              <td><span class="direction-badge dir-out">emit</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text2)">{ source_id: string, position: {x,y,z} }</code></td>
+              <td>
+                Register a named 3D audio source at the given position in metres relative to the listener origin. <code style="font-family:'JetBrains Mono',monospace;font-size:12px">source_id</code> must be unique within the session - attempting to create a duplicate returns <code style="font-family:'JetBrains Mono',monospace;font-size:12px">CREATE_FAILED</code>. Coordinate system: X = left/right (positive = right), Y = up/down (positive = up), Z = forward/back (positive = toward listener). The renderer is not initialised until <code style="font-family:'JetBrains Mono',monospace;font-size:12px">init_audio</code> completes.
+              </td>
+            </tr>
+            <tr>
+              <td><span class="code-tag">remove_source</span></td>
+              <td><span class="direction-badge dir-out">emit</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text2)">{ source_id: string }</code></td>
+              <td>
+                Remove a source and free its py3dti resources. Any active stream for this source continues playing from its buffer until the next tick but will stop contributing to the mix afterwards. Safe to call even if no audio is currently streaming from the source.
+              </td>
+            </tr>
+            <tr>
+              <td><span class="code-tag">update_position</span></td>
+              <td><span class="direction-badge dir-out">emit</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text2)">{ source_id: string, position: {x,y,z} }</code></td>
+              <td>
+                Move a source to a new 3D position. The new position is applied on the very next rendered buffer chunk (~23ms at 44.1 kHz / 1024 samples), allowing smooth real-time movement. Can be called at any rate; the HRTF convolution state is preserved across updates so there are no audible discontinuities on position change.
+              </td>
+            </tr>
+            <tr>
+              <td><span class="code-tag">update_listener</span></td>
+              <td><span class="direction-badge dir-out">emit</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text2)">{ position: {x,y,z}, orientation: {forward:{x,y,z}, up:{x,y,z}} }</code></td>
+              <td>
+                Update the listener's position and head orientation in 3D space. <code style="font-family:'JetBrains Mono',monospace;font-size:12px">forward</code> and <code style="font-family:'JetBrains Mono',monospace;font-size:12px">up</code> must be unit vectors; they are orthogonalised internally and converted to the quaternion format required by py3dti. Default listener is at origin facing <code style="font-family:'JetBrains Mono',monospace;font-size:12px">(0, 0, -1)</code> with up <code style="font-family:'JetBrains Mono',monospace;font-size:12px">(0, 1, 0)</code>. Useful for head-tracking in VR/AR applications.
+              </td>
+            </tr>
+            <tr>
+              <td><span class="code-tag">stream_uploaded_file</span></td>
+              <td><span class="direction-badge dir-out">emit</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text2)">{ source_id: string, filename: string }</code></td>
+              <td>
+                Begin streaming a previously uploaded audio file, spatialised from the named source's position. The server decodes the file asynchronously (emits <code style="font-family:'JetBrains Mono',monospace;font-size:12px">DECODING</code> immediately), then starts emitting <code style="font-family:'JetBrains Mono',monospace;font-size:12px">file_audio_chunk</code> events at 44.1 kHz / 1024 samples (~23.2 ms) per chunk. The stream loops indefinitely. Multiple sources can stream simultaneously - all are mixed into a single binaural output per chunk. <code style="font-family:'JetBrains Mono',monospace;font-size:12px">filename</code> must be the <em>secured</em> filename returned by the upload endpoint.
+              </td>
+            </tr>
+            <tr>
+              <td><span class="code-tag">stop_file_stream</span></td>
+              <td><span class="direction-badge dir-out">emit</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text2)">{}</code></td>
+              <td>
+                Stop all active streams for this session. The server stops emitting <code style="font-family:'JetBrains Mono',monospace;font-size:12px">file_audio_chunk</code> events and responds with a <code style="font-family:'JetBrains Mono',monospace;font-size:12px">STREAM_STOPPED</code> status. Any audio already scheduled in the client's Web Audio API buffer will continue to play out. Call before disconnecting to clean up gracefully.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="api-section-label" style="margin-top:32px">Server → Client</div>
+        <table class="api-table">
+          <thead><tr><th style="width:180px">Event</th><th style="width:80px">Dir</th><th style="width:300px">Payload fields</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="code-tag">connected</span></td>
+              <td><span class="direction-badge dir-in">on</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text2)">{ session_id, sample_rate, buffer_size, message }</code></td>
+              <td>
+                Emitted immediately on connection. <code style="font-family:'JetBrains Mono',monospace;font-size:12px">session_id</code> is the Socket.IO SID - use this for all HTTP endpoint URLs. <code style="font-family:'JetBrains Mono',monospace;font-size:12px">sample_rate</code> is the server's configured output rate (default 44100) and <code style="font-family:'JetBrains Mono',monospace;font-size:12px">buffer_size</code> is the frame count per chunk (default 1024). Use these values when creating your Web Audio <code style="font-family:'JetBrains Mono',monospace;font-size:12px">AudioBuffer</code>.
+              </td>
+            </tr>
+            <tr>
+              <td><span class="code-tag">status</span></td>
+              <td><span class="direction-badge dir-in">on</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text2)">{ code, message, ...extra }</code></td>
+              <td>
+                Multiplex status event. <code style="font-family:'JetBrains Mono',monospace;font-size:12px">code</code> identifies the type (see Status Codes tab). Extra fields vary by code - e.g. <code style="font-family:'JetBrains Mono',monospace;font-size:12px">AUDIO_INITIALISED</code> includes <code style="font-family:'JetBrains Mono',monospace;font-size:12px">placeholder_mode: bool</code> indicating whether py3dti loaded successfully or fell back to a simple panning simulation.
+              </td>
+            </tr>
+            <tr>
+              <td><span class="code-tag">file_audio_chunk</span></td>
+              <td><span class="direction-badge dir-in">on</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text2)">{ audio_data: string, source_positions: object }</code></td>
+              <td>
+                Core streaming event. <code style="font-family:'JetBrains Mono',monospace;font-size:12px">audio_data</code> is a base64-encoded block of IEEE 754 float32 samples in stereo interleaved format (LRLRLR…). Decode with <code style="font-family:'JetBrains Mono',monospace;font-size:12px">atob()</code> + <code style="font-family:'JetBrains Mono',monospace;font-size:12px">DataView.getFloat32()</code>, split into left/right channels, and schedule with the Web Audio API. <code style="font-family:'JetBrains Mono',monospace;font-size:12px">source_positions</code> maps each <code style="font-family:'JetBrains Mono',monospace;font-size:12px">source_id</code> to <code style="font-family:'JetBrains Mono',monospace;font-size:12px">{ current, total }</code> buffer indices for progress tracking.
+              </td>
+            </tr>
+            <tr>
+              <td><span class="code-tag">error</span></td>
+              <td><span class="direction-badge dir-in">on</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text2)">{ message: string, code?: string }</code></td>
+              <td>
+                Emitted for recoverable errors - e.g. source not found, file not found, decode failure. The session remains active after an error. Distinguish from the <code style="font-family:'JetBrains Mono',monospace;font-size:12px">disconnect</code> event which signals an unrecoverable connection loss.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div style="margin-top:32px">
+          <div class="api-section-label">Quick Start</div>
+          <div class="code-block">
+<span class="kw">const</span> socket = <span class="fn">io</span>(<span class="str">'http://your-server:5000'</span>);
+
+socket.<span class="fn">on</span>(<span class="str">'connected'</span>, ({ session_id, sample_rate, buffer_size }) =&gt; {
+  <span class="cm">// store session_id for HTTP upload URLs</span>
+  <span class="fn">emit</span>(<span class="str">'init_audio'</span>, { <span class="prop">hrtf_file</span>: <span class="str">'p0200.sofa'</span> });
+});
+
+socket.<span class="fn">on</span>(<span class="str">'status'</span>, ({ code, placeholder_mode }) =&gt; {
+  <span class="kw">if</span> (code === <span class="str">'AUDIO_INITIALISED'</span>) {
+    socket.<span class="fn">emit</span>(<span class="str">'create_source'</span>, {
+      <span class="prop">source_id</span>: <span class="str">'speaker_1'</span>,
+      <span class="prop">position</span>: { <span class="prop">x</span>: <span class="num">3</span>, <span class="prop">y</span>: <span class="num">0</span>, <span class="prop">z</span>: <span class="num">0</span> } <span class="cm">// 3m to the right</span>
+    });
+  }
+  <span class="kw">if</span> (code === <span class="str">'SOURCE_CREATED'</span>) {
+    <span class="cm">// upload audio via HTTP then stream it</span>
+    socket.<span class="fn">emit</span>(<span class="str">'stream_uploaded_file'</span>, {
+      <span class="prop">source_id</span>: <span class="str">'speaker_1'</span>, <span class="prop">filename</span>: <span class="str">'track.mp3'</span>
+    });
+  }
+});
+
+<span class="cm">// receive binaural chunks and schedule via Web Audio</span>
+<span class="kw">let</span> scheduledUntil = <span class="num">0</span>;
+socket.<span class="fn">on</span>(<span class="str">'file_audio_chunk'</span>, ({ audio_data }) =&gt; {
+  <span class="kw">const</span> raw = <span class="fn">atob</span>(audio_data);
+  <span class="kw">const</span> dv = <span class="kw">new</span> <span class="fn">DataView</span>(<span class="kw">new</span> <span class="fn">ArrayBuffer</span>(raw.length));
+  <span class="kw">for</span> (<span class="kw">let</span> i = <span class="num">0</span>; i &lt; raw.length; i++) dv.<span class="fn">setUint8</span>(i, raw.<span class="fn">charCodeAt</span>(i));
+  <span class="kw">const</span> nSamples = raw.length / <span class="num">8</span>; <span class="cm">// float32 stereo</span>
+  <span class="kw">const</span> ab = ctx.<span class="fn">createBuffer</span>(<span class="num">2</span>, nSamples, <span class="num">44100</span>);
+  <span class="kw">const</span> L = ab.<span class="fn">getChannelData</span>(<span class="num">0</span>), R = ab.<span class="fn">getChannelData</span>(<span class="num">1</span>);
+  <span class="kw">for</span> (<span class="kw">let</span> i = <span class="num">0</span>; i &lt; nSamples; i++) {
+    L[i] = dv.<span class="fn">getFloat32</span>(i * <span class="num">8</span>, <span class="kw">true</span>);
+    R[i] = dv.<span class="fn">getFloat32</span>(i * <span class="num">8</span> + <span class="num">4</span>, <span class="kw">true</span>);
+  }
+  <span class="kw">const</span> src = ctx.<span class="fn">createBufferSource</span>();
+  src.buffer = ab; src.<span class="fn">connect</span>(ctx.destination);
+  <span class="kw">if</span> (scheduledUntil &lt; ctx.currentTime + <span class="num">0.3</span>) scheduledUntil = ctx.currentTime + <span class="num">0.3</span>;
+  src.<span class="fn">start</span>(scheduledUntil);
+  scheduledUntil += ab.duration;
+});
+            <div class="code-block-label">JavaScript</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="api-tab-panel" id="api-http">
+        <table class="api-table">
+          <thead><tr><th style="width:80px">Method</th><th style="width:320px">Path</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="method-tag method-post">POST</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px">/upload/&lt;session_id&gt;/&lt;source_id&gt;</code></td>
+              <td>
+                Upload an audio file to be streamed from a source. Send as <code style="font-family:'JetBrains Mono',monospace;font-size:12px">multipart/form-data</code> with field <code style="font-family:'JetBrains Mono',monospace;font-size:12px">audio_file</code>. Accepted formats: MP3, WAV, M4A, OGG (max 50 MB). Returns JSON with <code style="font-family:'JetBrains Mono',monospace;font-size:12px">saved_filename</code> - use this exact string (not the original filename) when calling <code style="font-family:'JetBrains Mono',monospace;font-size:12px">stream_uploaded_file</code>, as the server applies <code style="font-family:'JetBrains Mono',monospace;font-size:12px">secure_filename()</code> before saving. <code style="font-family:'JetBrains Mono',monospace;font-size:12px">session_id</code> and <code style="font-family:'JetBrains Mono',monospace;font-size:12px">source_id</code> must both exist in the session manager before uploading.
+                <br><br>
+                <strong style="font-size:12px;color:var(--text)">Response 200:</strong>
+                <code style="font-family:'JetBrains Mono',monospace;font-size:12px;display:block;margin-top:6px;color:var(--text2)">{ "message": "File uploaded successfully", "saved_filename": "speaker_1_track.mp3", "source_id": "speaker_1", "file_info": { "duration_seconds": 214.3, "sample_rate": 44100, "channels": 2 } }</code>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="method-tag method-post">POST</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px">/upload_hrtf/&lt;session_id&gt;</code></td>
+              <td>
+                Upload a personalised SOFA-format HRTF file for this session. Send as <code style="font-family:'JetBrains Mono',monospace;font-size:12px">multipart/form-data</code> with field <code style="font-family:'JetBrains Mono',monospace;font-size:12px">hrtf_file</code>. Only <code style="font-family:'JetBrains Mono',monospace;font-size:12px">.sofa</code> files are accepted. After uploading, call <code style="font-family:'JetBrains Mono',monospace;font-size:12px">init_audio</code> with <code style="font-family:'JetBrains Mono',monospace;font-size:12px">use_uploaded: true</code> to activate it. The server always uses the most recently uploaded SOFA file for the session.
+                <br><br>
+                <strong style="font-size:12px;color:var(--text)">Response 200:</strong>
+                <code style="font-family:'JetBrains Mono',monospace;font-size:12px;display:block;margin-top:6px;color:var(--text2)">{ "message": "HRTF uploaded successfully", "filename": "my_hrtf.sofa", "session_id": "...", "instruction": "Emit init_audio with use_uploaded=true to activate" }</code>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="method-tag method-get">GET</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px">/</code></td>
+              <td>
+                Health check. Returns server version, active session count, and global performance metrics. No authentication required.
+                <br><br>
+                <strong style="font-size:12px;color:var(--text)">Response 200:</strong>
+                <code style="font-family:'JetBrains Mono',monospace;font-size:12px;display:block;margin-top:6px;color:var(--text2)">{ "service": "SpatialSocket API", "version": "0.4.0", "status": "running", "active_sessions": 2 }</code>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="method-tag method-get">GET</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px">/files/&lt;session_id&gt;</code></td>
+              <td>
+                List all audio files uploaded in a session, with metadata (duration, sample rate, channels, estimated buffer count). Useful for building a file picker UI.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="api-tab-panel" id="api-codes">
+        <p style="font-size:14px;color:var(--text2);margin-bottom:20px;line-height:1.7">All multiplexed through the <code style="font-family:'JetBrains Mono',monospace;font-size:12px">status</code> event as the <code style="font-family:'JetBrains Mono',monospace;font-size:12px">code</code> field. Always check <code style="font-family:'JetBrains Mono',monospace;font-size:12px">d.code</code> rather than <code style="font-family:'JetBrains Mono',monospace;font-size:12px">d.message</code> - messages are human-readable and may change between server versions.</p>
+        <table class="api-table">
+          <thead><tr><th style="width:200px">Code</th><th style="width:120px">Trigger</th><th>Meaning &amp; Extra Fields</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="status-badge">AUDIO_LOADING</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px">init_audio</code></td>
+              <td>HRTF file is being loaded from disk and parsed by py3dti. This can take several seconds for large SOFA files. The client should show a loading state and disable the source/stream controls until <code style="font-family:'JetBrains Mono',monospace;font-size:12px">AUDIO_INITIALISED</code> arrives.</td>
+            </tr>
+            <tr>
+              <td><span class="status-badge">AUDIO_INITIALISED</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px">init_audio</code></td>
+              <td>Renderer ready. Extra fields: <code style="font-family:'JetBrains Mono',monospace;font-size:12px">hrtf_source</code> (resolved file path), <code style="font-family:'JetBrains Mono',monospace;font-size:12px">placeholder_mode: bool</code>. If <code style="font-family:'JetBrains Mono',monospace;font-size:12px">placeholder_mode</code> is true, py3dti is unavailable or the HRTF failed to load - the server falls back to a simple stereo panning simulation. Audio will still stream but without genuine binaural processing.</td>
+            </tr>
+            <tr>
+              <td><span class="status-badge" style="background:rgba(220,38,38,0.07);border-color:rgba(220,38,38,0.2);color:var(--red)">INIT_FAILED</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px">init_audio</code></td>
+              <td>Initialisation failed - most likely the specified HRTF file does not exist on the server. Check <code style="font-family:'JetBrains Mono',monospace;font-size:12px">hrtf_source</code> in the payload and verify the file path. The session is still alive; the client can retry <code style="font-family:'JetBrains Mono',monospace;font-size:12px">init_audio</code> with a corrected filename.</td>
+            </tr>
+            <tr>
+              <td><span class="status-badge">SOURCE_CREATED</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px">create_source</code></td>
+              <td>Source registered successfully. Extra fields: <code style="font-family:'JetBrains Mono',monospace;font-size:12px">source_id</code>, <code style="font-family:'JetBrains Mono',monospace;font-size:12px">position: {x,y,z}</code> (server-confirmed coordinates). Use the confirmed position to update your UI rather than assuming the client-side values.</td>
+            </tr>
+            <tr>
+              <td><span class="status-badge" style="background:rgba(220,38,38,0.07);border-color:rgba(220,38,38,0.2);color:var(--red)">CREATE_FAILED</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px">create_source</code></td>
+              <td>Source could not be created. Common reasons: audio processor not yet initialised, duplicate <code style="font-family:'JetBrains Mono',monospace;font-size:12px">source_id</code>, or session source limit exceeded (default 16). Extra field: <code style="font-family:'JetBrains Mono',monospace;font-size:12px">source_id</code> (the ID that failed, for rollback).</td>
+            </tr>
+            <tr>
+              <td><span class="status-badge" style="background:rgba(215,119,0,0.07);border-color:rgba(215,119,0,0.2);color:var(--amber)">DECODING</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px">stream_uploaded_file</code></td>
+              <td>File decoding and resampling started in a background thread. The event thread is unblocked immediately so other WebSocket events can still be processed. Decoding time is proportional to file duration and sample rate conversion complexity. <code style="font-family:'JetBrains Mono',monospace;font-size:12px">STREAM_READY</code> follows when complete.</td>
+            </tr>
+            <tr>
+              <td><span class="status-badge" style="background:rgba(22,163,74,0.07);border-color:rgba(22,163,74,0.2);color:var(--green)">STREAM_READY</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px">stream_uploaded_file</code></td>
+              <td>Decode complete, streaming started. Extra fields: <code style="font-family:'JetBrains Mono',monospace;font-size:12px">source_id</code>, <code style="font-family:'JetBrains Mono',monospace;font-size:12px">total_buffers</code> (total chunk count for the file), <code style="font-family:'JetBrains Mono',monospace;font-size:12px">duration_seconds</code>. The session-level streaming task begins emitting <code style="font-family:'JetBrains Mono',monospace;font-size:12px">file_audio_chunk</code> events at the configured sample rate.</td>
+            </tr>
+            <tr>
+              <td><span class="status-badge">STREAM_STOPPED</span></td>
+              <td><code style="font-family:'JetBrains Mono',monospace;font-size:12px">stop_file_stream</code></td>
+              <td>All streams for this session have been halted. The background task is terminated cleanly. Any audio already buffered in the client's Web Audio graph will continue to play out - call <code style="font-family:'JetBrains Mono',monospace;font-size:12px">AudioContext.close()</code> if you want to cut it off immediately.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═══ PLAYGROUND ════════════════════════════════════════ -->
+<section id="playground">
+  <div class="container">
+    <div class="pg-header fade-in">
+      <div class="section-label">Interactive</div>
+      <h2 class="section-title">Live API Playground</h2>
+      <p class="section-sub" style="margin:0 auto">Connect to your SpatialSocket server, add sources, upload audio and hear binaural output in your browser.</p>
+    </div>
+
+    <!-- Connection bar -->
+    <div class="conn-bar fade-in" style="transition-delay:.1s">
+      <div class="conn-dot" id="pg-dot"></div>
+      <input type="text" id="pg-url" value="http://localhost:5000" placeholder="http://your-server:5000">
+      <button class="pg-btn primary" id="pg-btn-conn" onclick="pgConnect()">Connect</button>
+      <button class="pg-btn danger" id="pg-btn-disc" onclick="pgDisconnect()" disabled>Disconnect</button>
+      <span id="pg-conn-text">Not connected</span>
+      <span id="pg-sid-pill"></span>
+    </div>
+
+    <!-- Main 3-col layout -->
+    <div class="pg-layout fade-in" style="transition-delay:.15s">
+
+      <!-- LEFT: controls -->
+      <div class="pg-left-col">
+
+        <!-- Audio engine card -->
+        <div class="pg-card" id="pg-engine-card">
+          <div class="pg-card-title">
+            <span class="step-dot" id="step-dot-1">1</span>
+            Audio Engine
+          </div>
+          <label class="pg-label">HRTF file (on server)</label>
+          <input type="text" class="pg-input" id="pg-hrtf-name" value="p0200.sofa">
+          <label class="pg-check-row">
+            <input type="checkbox" id="pg-use-uploaded">
+            <span>Use uploaded HRTF</span>
+          </label>
+          <button class="pg-btn-full primary" id="pg-btn-init" onclick="pgInit()" disabled>Initialise Engine</button>
+          <hr class="pg-divider">
+          <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Upload personalised HRTF (.sofa)</div>
+          <button class="pg-btn-full" onclick="document.getElementById('pg-hrtf-file').click()">Upload HRTF</button>
+          <input type="file" id="pg-hrtf-file" accept=".sofa" style="display:none" onchange="pgUploadHRTF(this)">
+          <div class="pg-status-text" id="pg-hrtf-status"></div>
+        </div>
+
+        <!-- Sources card -->
+        <div class="pg-card" id="pg-sources-card">
+          <div class="pg-card-title">
+            <span class="step-dot" id="step-dot-2">2</span>
+            Sources
+          </div>
+          <div id="pg-source-list"></div>
+          <hr class="pg-divider">
+          <label class="pg-label">Source name</label>
+          <input type="text" class="pg-input" id="pg-src-id" value="speaker_1">
+          <div class="add-src-grid" style="margin-top:8px">
+            <div>
+              <div class="add-src-xyz-label">X</div>
+              <input type="number" class="pg-input" id="pg-sx" value="2" step="0.1">
+            </div>
+            <div>
+              <div class="add-src-xyz-label">Y</div>
+              <input type="number" class="pg-input" id="pg-sy" value="0" step="0.1">
+            </div>
+            <div>
+              <div class="add-src-xyz-label">Z</div>
+              <input type="number" class="pg-input" id="pg-sz" value="2" step="0.1">
+            </div>
+          </div>
+          <button class="pg-btn-full success" id="pg-btn-add-src" onclick="pgAddSource()" disabled>+ Add Source</button>
+        </div>
+
+      </div>
+
+      <!-- CENTER: 3D canvas -->
+      <div class="pg-center-col">
+        <div class="scene-outer">
+          <canvas id="pg-canvas"></canvas>
+          <div class="scene-hint-bar">Drag source · <kbd>Shift</kbd>+drag source to adjust elevation (Y) · Drag background to orbit · Scroll to zoom</div>
+          <div class="scene-coords" id="pg-coords"></div>
+        </div>
+      </div>
+
+      <!-- RIGHT: stream + log -->
+      <div class="pg-right-col">
+
+        <!-- Mix output card -->
+        <div class="pg-card stream-card">
+          <div class="pg-card-title">
+            <span class="step-dot" id="step-dot-3">3</span>
+            Mix Output
+          </div>
+          <div class="pg-status-text" id="pg-stream-status" style="margin-bottom:8px">Upload a file to a source to begin</div>
+          <div class="pg-progress"><div class="pg-progress-fill" id="pg-prog-fill"></div></div>
+          <button class="pg-btn-full danger" id="pg-btn-stop" onclick="pgStop()" style="margin-top:8px;display:none">Stop All</button>
+        </div>
+
+        <!-- Activity log card -->
+        <div class="pg-card">
+          <div class="log-hdr-row">
+            <div class="pg-card-title" style="margin-bottom:0">Activity Log</div>
+            <button class="log-clear-btn" onclick="document.getElementById('pg-log').innerHTML=''">Clear</button>
+          </div>
+          <div id="pg-log"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ PERFORMANCE ══════════════════════════════════════ -->
+<section id="performance">
+  <div class="container">
+    <div class="fade-in">
+      <div class="section-label">Benchmarks</div>
+      <h2 class="section-title">Performance Benchmark</h2>
+      <p class="section-sub">Measure end-to-end latency and throughput of WebSocket vs HTTP+SSE transport directly in your browser.</p>
+    </div>
+
+    <div class="bench-config fade-in" style="transition-delay:.1s">
+      <div class="bench-cfg-group" style="min-width:200px;flex:1">
+        <label>WebSocket URL</label>
+        <input type="text" id="bench-ws-url" value="http://localhost:5000">
+      </div>
+      <div class="bench-cfg-group" style="min-width:200px;flex:1">
+        <label>HTTP+SSE URL</label>
+        <input type="text" id="bench-http-url" value="http://localhost:5001">
+      </div>
+      <div class="bench-cfg-group" style="width:80px">
+        <label>Sessions</label>
+        <input type="number" id="bench-sessions" value="1" min="1" max="10" style="width:80px">
+      </div>
+      <div class="bench-cfg-group" style="width:80px">
+        <label>Chunks</label>
+        <input type="number" id="bench-chunks" value="20" min="5" max="100" style="width:80px">
+      </div>
+      <div class="bench-cfg-group" style="min-width:160px;flex:1">
+        <label>Audio file (optional)</label>
+        <input type="text" id="bench-audio-name" placeholder="Uses generated 440 Hz tone" readonly
+          style="cursor:pointer" onclick="document.getElementById('bench-audio-input').click()">
+        <input type="file" id="bench-audio-input" accept=".wav,.mp3" style="display:none"
+          onchange="benchSetAudio(this)">
+      </div>
+    </div>
+
+    <div class="bench-run-row fade-in" style="transition-delay:.15s">
+      <button class="bench-btn ws" id="bench-btn-ws" onclick="benchRunWS()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        Run WebSocket
+      </button>
+      <button class="bench-btn http" id="bench-btn-http" onclick="benchRunHTTP()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        Run HTTP+SSE
+      </button>
+      <button class="bench-btn cmp" id="bench-btn-cmp" onclick="benchRunCompare()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Compare Both
+      </button>
+    </div>
+
+    <div class="bench-results fade-in" style="transition-delay:.2s">
+      <div class="bench-tabs-row">
+        <button class="bench-tab active" id="btab-ws"      onclick="showBenchTab('ws',this)">WebSocket</button>
+        <button class="bench-tab"        id="btab-http"    onclick="showBenchTab('http',this)">HTTP+SSE</button>
+        <button class="bench-tab"        id="btab-cmp"     onclick="showBenchTab('cmp',this)">Comparison</button>
+      </div>
+
+      <div class="bench-panel active" id="bpanel-ws">
+        <div class="bench-status-bar" id="bstat-ws">Run a WebSocket benchmark to see results.</div>
+        <div id="bcards-ws"></div>
+        <div id="btable-ws"></div>
+      </div>
+
+      <div class="bench-panel" id="bpanel-http">
+        <div class="bench-status-bar" id="bstat-http">Run an HTTP+SSE benchmark to see results.</div>
+        <div id="bcards-http"></div>
+        <div id="btable-http"></div>
+      </div>
+
+      <div class="bench-panel" id="bpanel-cmp">
+        <div class="bench-status-bar" id="bstat-cmp">Run a comparison to see results.</div>
+        <div id="bcmp-content"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ FOOTER ════════════════════════════════════════════ -->
+<footer>
+  <div class="container">
+    <div class="footer-inner">
+      <div>
+        <div class="footer-brand">SpatialSocket</div>
+        <div class="footer-tagline">Server-side HRTF spatial audio streaming over WebSocket. Built for developers.</div>
+      </div>
+      <ul class="footer-links">
+        <li><a href="#playground">Playground</a></li>
+        <li><a href="#performance">Performance</a></li>
+        <li><a href="#api">API</a></li>
+        <li><a href="https://github.com" target="_blank">GitHub</a></li>
+      </ul>
+    </div>
+    <div class="footer-copy">2026 SpatialSocket. Open source spatial audio infrastructure.</div>
+  </div>
+</footer>
+
+<script>
+// hero blob parallax
+(function(){
+  const blobBlue = document.getElementById('hero-blob-blue');
+  const blobViolet = document.getElementById('hero-blob-violet');
+  const hero = document.getElementById('hero');
+  if(!hero||!blobBlue||!blobViolet) return;
+  let tBX=0,tBY=0,tVX=0,tVY=0;
+  let cBX=0,cBY=0,cVX=0,cVY=0;
+  hero.addEventListener('mousemove',e=>{
+    const r=hero.getBoundingClientRect();
+    const mx=(e.clientX-r.left)/r.width-0.5;
+    const my=(e.clientY-r.top)/r.height-0.5;
+    tBX=mx*100; tBY=my*70;
+    tVX=mx*-80; tVY=my*-60;
+  });
+  hero.addEventListener('mouseleave',()=>{
+    tBX=0;tBY=0;tVX=0;tVY=0;
+  });
+  function lerp(a,b,t){return a+(b-a)*t}
+  function tick(){
+    cBX=lerp(cBX,tBX,0.05); cBY=lerp(cBY,tBY,0.05);
+    cVX=lerp(cVX,tVX,0.04); cVY=lerp(cVY,tVY,0.04);
+    blobBlue.style.transform=`translate(${cBX}px,${cBY}px)`;
+    blobViolet.style.transform=`translate(${cVX}px,${cVY}px)`;
+    requestAnimationFrame(tick);
+  }
+  tick();
+})();
+
+// navbar scroll behavior
+(function(){
+  const nav = document.getElementById('navbar');
+  function update(){
+    nav.style.borderBottomColor = window.scrollY > 10 ? 'var(--border)' : 'transparent';
+  }
+  window.addEventListener('scroll', update, {passive:true});
+  update();
+})();
+
+// section fade-in
+(function(){
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(e => { if(e.isIntersecting) e.target.classList.add('visible'); });
+  }, {threshold:0.1});
+  document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+
+  const sections = ['hero','overview','use-cases','api','playground','performance'];
+  const navLinks = document.querySelectorAll('.nav-links a');
+  const scrollObserver = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if(e.isIntersecting){
+        const id = e.target.id;
+        navLinks.forEach(a => {
+          a.classList.toggle('active', a.getAttribute('href') === '#'+id);
+        });
+      }
+    });
+  }, {threshold:0.3, rootMargin:'-60px 0px -60px 0px'});
+  sections.forEach(id => {
+    const el = document.getElementById(id);
+    if(el) scrollObserver.observe(el);
+  });
+})();
+
+// api tabs
+function showApiTab(name, btn){
+  document.querySelectorAll('.api-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.api-tab-panel').forEach(p=>p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('api-'+name).classList.add('active');
+}
+
+// playground state
+let pgSock = null, pgSid = null, pgAudioOk = false;
+let pgSources = {};
+let pgSelSrc = null;
+let pgUploads = {};       // { srcId: { savedName, origName } }
+let pgSourceStates = {};  // { srcId: 'idle' | 'playing' | 'paused' }
+
+let audioCtx = null;
+let audioAnalyser = null, audioDataArray = null;
+let scheduledUntil = 0;
+const STREAM_LATENCY = 0.06;
+let dragEmitLastMs = 0;
+let serverSampleRate = 48000;
+
+const SRC_COLORS = ['#06b6d4','#f97316','#ec4899','#22c55e','#eab308','#a78bfa','#60a5fa','#f87171'];
+let colorIdx = 0;
+function nextColor(){ return SRC_COLORS[colorIdx++ % SRC_COLORS.length]; }
+
+// web audio playback
+function getAudioCtx(){
+  if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)({sampleRate:serverSampleRate});
+  if(audioCtx.state==='suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+function getAnalyser(){
+  const ctx = getAudioCtx();
+  if(!audioAnalyser){
+    audioAnalyser = ctx.createAnalyser();
+    audioAnalyser.fftSize = 256;
+    audioAnalyser.smoothingTimeConstant = 0.8;
+    audioDataArray = new Uint8Array(audioAnalyser.frequencyBinCount);
+    audioAnalyser.connect(ctx.destination);
+  }
+  return audioAnalyser;
+}
+
+function scheduleChunk(b64){
+  const ctx = getAudioCtx();
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+  const interleaved = new Float32Array(bytes.buffer);
+  const N = interleaved.length/2;
+  const ab = ctx.createBuffer(2,N,serverSampleRate);
+  const L = ab.getChannelData(0), R = ab.getChannelData(1);
+  for(let i=0;i<N;i++){ L[i]=interleaved[i*2]; R[i]=interleaved[i*2+1]; }
+  const src = ctx.createBufferSource();
+  src.buffer = ab;
+  src.connect(getAnalyser());
+  const now = ctx.currentTime;
+  if(scheduledUntil < now+STREAM_LATENCY) scheduledUntil = now+STREAM_LATENCY;
+  src.start(scheduledUntil);
+  scheduledUntil += N/serverSampleRate;
+}
+
+// three.js scene
+let threeRenderer, threeScene, threeCamera;
+const sourceMeshes = {};
+const sourceStems = {};
+let pgAnimRunning = false;
+const vizRings = [];
+let vizBlueLoop = null, vizVioletLoop = null;
+let ringSpawnT = 0, animLastT = 0;
+
+const orbit = { theta: Math.PI/4, phi: Math.PI/3, radius: 14 };
+const mouseNDC = new THREE.Vector2();
+const raycaster = new THREE.Raycaster();
+const dragPlane = new THREE.Plane(new THREE.Vector3(0,1,0), 0);
+let dragActive = false, orbitActive = false, dragSrcId = null;
+let elevDragActive = false, elevDragStartY = 0, elevDragStartMouseY = 0;
+const lastMouse = {x:0, y:0};
+
+function updateCamera(){
+  threeCamera.position.x = orbit.radius * Math.sin(orbit.phi) * Math.sin(orbit.theta);
+  threeCamera.position.y = orbit.radius * Math.cos(orbit.phi);
+  threeCamera.position.z = orbit.radius * Math.sin(orbit.phi) * Math.cos(orbit.theta);
+  threeCamera.lookAt(0,0,0);
+}
+
+function updateMouseNDC(e){
+  const canvas = document.getElementById('pg-canvas');
+  const rect = canvas.getBoundingClientRect();
+  mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+}
+
+function updateSourceInputs(srcId, pos){
+  const row = document.getElementById('src-row-'+srcId);
+  if(!row) return;
+  const xi = row.querySelector('.src-x');
+  const yi = row.querySelector('.src-y');
+  const zi = row.querySelector('.src-z');
+  if(xi){ xi.value = pos.x.toFixed(1); if(xi.nextElementSibling) xi.nextElementSibling.textContent = pos.x.toFixed(1); }
+  if(yi){ yi.value = pos.y.toFixed(1); if(yi.nextElementSibling) yi.nextElementSibling.textContent = pos.y.toFixed(1); }
+  if(zi){ zi.value = pos.z.toFixed(1); if(zi.nextElementSibling) zi.nextElementSibling.textContent = pos.z.toFixed(1); }
+  if(pgSources[srcId]){
+    pgSources[srcId].x = pos.x;
+    pgSources[srcId].y = pos.y;
+    pgSources[srcId].z = pos.z;
+  }
+}
+
+function initThree(){
+  const canvas = document.getElementById('pg-canvas');
+  const wrap = canvas.parentElement;
+
+  function resize(){
+    const w = wrap.clientWidth;
+    const h = Math.max(380, Math.round(w*0.6));
+    canvas.width = w;
+    canvas.height = h;
+    if(threeRenderer){
+      threeRenderer.setSize(w,h);
+      threeCamera.aspect = w/h;
+      threeCamera.updateProjectionMatrix();
+    }
+  }
+
+  threeRenderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:false});
+  threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  threeRenderer.setClearColor(0x030303,1);
+
+  threeScene = new THREE.Scene();
+  threeScene.fog = new THREE.FogExp2(0x030303, 0.04);
+
+  threeCamera = new THREE.PerspectiveCamera(55, 1, 0.1, 200);
+
+  resize();
+  window.addEventListener('resize', resize);
+
+  threeScene.add(new THREE.AmbientLight(0xffffff,0.35));
+  const dirLight = new THREE.DirectionalLight(0xffffff,0.6);
+  dirLight.position.set(5,10,5);
+  threeScene.add(dirLight);
+
+  const gridHelper = new THREE.GridHelper(20,20,0x1a1a1a,0x1a1a1a);
+  gridHelper.material.opacity = 0.6;
+  gridHelper.material.transparent = true;
+  threeScene.add(gridHelper);
+
+  const boundGeo = new THREE.SphereGeometry(5,24,16);
+  const boundMat = new THREE.MeshBasicMaterial({color:0x8b5cf6,wireframe:true,opacity:0.05,transparent:true});
+  threeScene.add(new THREE.Mesh(boundGeo,boundMat));
+
+  // listener mesh
+  const listenerGroup = new THREE.Group();
+  const headGeo = new THREE.SphereGeometry(0.4,20,16);
+  const headMat = new THREE.MeshStandardMaterial({color:0xffffff,roughness:0.3,metalness:0.2});
+  listenerGroup.add(new THREE.Mesh(headGeo,headMat));
+
+  const leftEarGeo = new THREE.SphereGeometry(0.12,12,10);
+  const leftEarMat = new THREE.MeshStandardMaterial({color:0x2563eb,roughness:0.3,emissive:0x2563eb,emissiveIntensity:0.5});
+  const leftEar = new THREE.Mesh(leftEarGeo,leftEarMat);
+  leftEar.position.set(-0.5,0,0);
+  listenerGroup.add(leftEar);
+
+  const rightEarGeo = new THREE.SphereGeometry(0.12,12,10);
+  const rightEarMat = new THREE.MeshStandardMaterial({color:0x8b5cf6,roughness:0.3,emissive:0x8b5cf6,emissiveIntensity:0.5});
+  const rightEar = new THREE.Mesh(rightEarGeo,rightEarMat);
+  rightEar.position.set(0.5,0,0);
+  listenerGroup.add(rightEar);
+
+  threeScene.add(listenerGroup);
+
+  for(let i=0;i<18;i++){
+    const geo = new THREE.RingGeometry(0.05,0.14,52);
+    const mat = new THREE.MeshBasicMaterial({
+      color: i%2===0 ? 0x3b82f6 : 0x8b5cf6,
+      transparent:true, opacity:0, side:THREE.DoubleSide, depthWrite:false
+    });
+    const ring = new THREE.Mesh(geo,mat);
+    ring.rotation.x = -Math.PI/2;
+    ring.visible = false;
+    ring.userData = {active:false,age:0,life:1.3,initOpacity:0};
+    threeScene.add(ring);
+    vizRings.push(ring);
+  }
+
+  const NAURA = 96;
+  function makeAuraLoop(color){
+    const pos = new Float32Array(NAURA*3);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+    const mat = new THREE.LineBasicMaterial({color, transparent:true, opacity:0.15});
+    const loop = new THREE.LineLoop(geo,mat);
+    loop.rotation.x = -Math.PI/2;
+    const attr = loop.geometry.attributes.position;
+    for(let i=0;i<NAURA;i++){
+      const a=(i/NAURA)*Math.PI*2;
+      attr.setXYZ(i,Math.cos(a),Math.sin(a),0);
+    }
+    attr.needsUpdate=true;
+    threeScene.add(loop);
+    return loop;
+  }
+  vizBlueLoop = makeAuraLoop(0x3b82f6);
+  vizVioletLoop = makeAuraLoop(0x8b5cf6);
+
+  function makeAxis(dir,color){
+    const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), dir]);
+    const mat = new THREE.LineBasicMaterial({color,opacity:0.5,transparent:true});
+    return new THREE.Line(geo,mat);
+  }
+  threeScene.add(makeAxis(new THREE.Vector3(1.8,0,0),0xef4444));
+  threeScene.add(makeAxis(new THREE.Vector3(0,1.8,0),0x22c55e));
+  threeScene.add(makeAxis(new THREE.Vector3(0,0,1.8),0x3b82f6));
+
+  canvas.addEventListener('mousedown', e => {
+    if(e.button !== 0) return;
+    updateMouseNDC(e);
+    raycaster.setFromCamera(mouseNDC, threeCamera);
+    const meshes = Object.values(sourceMeshes);
+    const hits = raycaster.intersectObjects(meshes);
+    if(hits.length > 0){
+      const mesh = hits[0].object;
+      dragSrcId = mesh.userData.sourceId;
+      if(e.shiftKey){
+        // shift+drag changes elevation (y-axis)
+        elevDragActive = true;
+        elevDragStartY = mesh.position.y;
+        elevDragStartMouseY = e.clientY;
+        dragActive = false;
+      } else {
+        dragPlane.constant = -mesh.position.y;
+        dragActive = true;
+        elevDragActive = false;
+      }
+      orbitActive = false;
+    } else {
+      dragActive = false;
+      elevDragActive = false;
+      orbitActive = true;
+    }
+    lastMouse.x = e.clientX;
+    lastMouse.y = e.clientY;
+    e.preventDefault();
+  }, {passive:false});
+
+  canvas.addEventListener('mousemove', e => {
+    updateMouseNDC(e);
+    if(elevDragActive && dragSrcId){
+      const mesh = sourceMeshes[dragSrcId];
+      if(mesh){
+        const dy = (elevDragStartMouseY - e.clientY) * 0.025; // pixels to world units
+        mesh.position.y = Math.max(-5, Math.min(5, elevDragStartY + dy));
+        updateStem(dragSrcId);
+        updateSourceInputs(dragSrcId, mesh.position);
+        showCoords(dragSrcId);
+        const now = performance.now();
+        if(now - dragEmitLastMs > 50){ dragEmitLastMs = now; emitEvt('update_position',{source_id:dragSrcId,position:{x:mesh.position.x,y:mesh.position.y,z:mesh.position.z}}); }
+      }
+    } else if(dragActive && dragSrcId){
+      raycaster.setFromCamera(mouseNDC, threeCamera);
+      const target = new THREE.Vector3();
+      if(raycaster.ray.intersectPlane(dragPlane, target)){
+        const mesh = sourceMeshes[dragSrcId];
+        if(mesh){
+          mesh.position.x = target.x;
+          mesh.position.z = target.z;
+          updateStem(dragSrcId);
+          updateSourceInputs(dragSrcId, mesh.position);
+          showCoords(dragSrcId);
+          const now = performance.now();
+          if(now - dragEmitLastMs > 50){ dragEmitLastMs = now; emitEvt('update_position',{source_id:dragSrcId,position:{x:mesh.position.x,y:mesh.position.y,z:mesh.position.z}}); }
+        }
+      }
+    } else if(orbitActive){
+      const dx = (e.clientX - lastMouse.x) * 0.008;
+      const dy = (e.clientY - lastMouse.y) * 0.008;
+      orbit.theta -= dx;
+      orbit.phi = Math.max(0.05, Math.min(Math.PI * 0.85, orbit.phi + dy));
+      updateCamera();
+    }
+    lastMouse.x = e.clientX;
+    lastMouse.y = e.clientY;
+  });
+
+  window.addEventListener('mouseup', e => {
+    if((dragActive || elevDragActive) && dragSrcId){
+      const mesh = sourceMeshes[dragSrcId];
+      if(mesh){
+        emitEvt('update_position', {
+          source_id: dragSrcId,
+          position: { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z }
+        });
+        updateSourceInputs(dragSrcId, mesh.position);
+      }
+      document.getElementById('pg-coords').style.display = 'none';
+    }
+    dragActive = false;
+    elevDragActive = false;
+    orbitActive = false;
+    dragSrcId = null;
+  });
+
+  canvas.addEventListener('wheel', e => {
+    orbit.radius = Math.max(3, Math.min(30, orbit.radius + e.deltaY * 0.02));
+    updateCamera();
+    e.preventDefault();
+  }, {passive:false});
+
+  canvas.addEventListener('touchstart', e => {
+    if(e.touches.length === 1){
+      const t = e.touches[0];
+      updateMouseNDC({clientX:t.clientX, clientY:t.clientY});
+      raycaster.setFromCamera(mouseNDC, threeCamera);
+      const meshes = Object.values(sourceMeshes);
+      const hits = raycaster.intersectObjects(meshes);
+      if(hits.length > 0){
+        const mesh = hits[0].object;
+        dragSrcId = mesh.userData.sourceId;
+        dragPlane.constant = -mesh.position.y;
+        dragActive = true; orbitActive = false;
+      } else {
+        orbitActive = true; dragActive = false;
+      }
+      lastMouse.x = t.clientX; lastMouse.y = t.clientY;
+    }
+    e.preventDefault();
+  }, {passive:false});
+
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if(e.touches.length === 1){
+      const t = e.touches[0];
+      const fakeE = {clientX:t.clientX, clientY:t.clientY};
+      updateMouseNDC(fakeE);
+      if(dragActive && dragSrcId){
+        raycaster.setFromCamera(mouseNDC, threeCamera);
+        const target = new THREE.Vector3();
+        if(raycaster.ray.intersectPlane(dragPlane, target)){
+          const mesh = sourceMeshes[dragSrcId];
+          if(mesh){
+            mesh.position.x = target.x;
+            mesh.position.z = target.z;
+            updateSourceInputs(dragSrcId, mesh.position);
+          }
+        }
+      } else if(orbitActive){
+        const dx = (t.clientX - lastMouse.x) * 0.008;
+        const dy = (t.clientY - lastMouse.y) * 0.008;
+        orbit.theta -= dx;
+        orbit.phi = Math.max(0.05, Math.min(Math.PI * 0.85, orbit.phi + dy));
+        updateCamera();
+      }
+      lastMouse.x = t.clientX; lastMouse.y = t.clientY;
+    }
+  }, {passive:false});
+
+  canvas.addEventListener('touchend', () => {
+    if(dragActive && dragSrcId){
+      const mesh = sourceMeshes[dragSrcId];
+      if(mesh){
+        emitEvt('update_position', {
+          source_id: dragSrcId,
+          position: { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z }
+        });
+        updateSourceInputs(dragSrcId, mesh.position);
+      }
+    }
+    dragActive = false; orbitActive = false; dragSrcId = null;
+  });
+
+  updateCamera();
+
+  // pause animation when section is not visible
+  const playgroundSection = document.getElementById('playground');
+  const visObs = new IntersectionObserver(entries=>{
+    entries.forEach(e=>{
+      pgAnimRunning = e.isIntersecting;
+      if(pgAnimRunning) animFrame();
+    });
+  },{threshold:0.1});
+  visObs.observe(playgroundSection);
+}
+
+let animFrameId = null;
+function animFrame(){
+  if(!pgAnimRunning){animFrameId=null;return;}
+  animFrameId = requestAnimationFrame(animFrame);
+  const now = performance.now()/1000;
+  const dt = Math.min(now-(animLastT||now), 0.05);
+  animLastT = now;
+
+  let amplitude = 0;
+  let freqData = null;
+  if(audioAnalyser && audioDataArray){
+    audioAnalyser.getByteFrequencyData(audioDataArray);
+    freqData = audioDataArray;
+    let sum=0; for(let i=0;i<freqData.length;i++) sum+=freqData[i];
+    amplitude = sum/(freqData.length*255);
+  }
+  const playing = amplitude > 0.012;
+
+  Object.values(pgSources).forEach((s,i)=>{
+    if(s.mesh){
+      const pulse = playing
+        ? 1 + amplitude*2.4
+        : 1 + 0.08*Math.sin(now*2+i*1.3);
+      s.mesh.scale.setScalar(pulse);
+      if(s.mesh.material)
+        s.mesh.material.emissiveIntensity = playing
+          ? 0.5+amplitude*3.5
+          : (sourceMeshes[pgSelSrc]===s.mesh ? 0.9 : 0.5);
+    }
+    if(s.light) s.light.intensity = playing
+      ? 0.8+amplitude*5
+      : 0.8+0.4*Math.sin(now*2+i*1.3);
+  });
+
+  if(playing){
+    ringSpawnT -= dt;
+    if(ringSpawnT<=0){
+      ringSpawnT = 0.16 + (1-Math.min(amplitude*3,1))*0.22;
+      const srcs = Object.values(pgSources).filter(s=>s.mesh);
+      srcs.forEach(s=>{
+        const ring = vizRings.find(r=>!r.userData.active);
+        if(!ring) return;
+        ring.position.set(s.mesh.position.x, s.mesh.position.y, s.mesh.position.z);
+        ring.userData.active=true; ring.userData.age=0;
+        ring.userData.life=1.0+amplitude*0.7;
+        ring.userData.initOpacity=0.5+amplitude*0.4;
+        ring.visible=true;
+        ring.scale.setScalar(0.25);
+      });
+    }
+  }
+  vizRings.forEach(ring=>{
+    if(!ring.userData.active) return;
+    ring.userData.age+=dt;
+    const p=ring.userData.age/ring.userData.life;
+    if(p>=1){ring.userData.active=false;ring.visible=false;ring.material.opacity=0;return;}
+    ring.scale.setScalar(0.25+p*5.5);
+    ring.material.opacity=ring.userData.initOpacity*(1-p)*(1-p);
+  });
+
+  if(vizBlueLoop && vizVioletLoop){
+    const N=96;
+    const bpos=vizBlueLoop.geometry.attributes.position;
+    const vpos=vizVioletLoop.geometry.attributes.position;
+    const bins=freqData?freqData.length:0;
+    for(let i=0;i<N;i++){
+      const a=(i/N)*Math.PI*2;
+      let mag=0;
+      if(bins>0){
+        // blue uses low-mid bins; violet uses mid-high bins
+        const bBin=Math.floor((i/N)*bins*0.5);
+        const vBin=Math.floor(bins*0.4+(i/N)*bins*0.5);
+        mag=freqData[Math.min(bBin,bins-1)]/255;
+        const magV=freqData[Math.min(vBin,bins-1)]/255;
+        bpos.setXYZ(i,Math.cos(a)*(0.62+mag*1.9),Math.sin(a)*(0.62+mag*1.9),0);
+        vpos.setXYZ(i,Math.cos(a)*(0.70+magV*1.7),Math.sin(a)*(0.70+magV*1.7),0);
+      } else {
+        bpos.setXYZ(i,Math.cos(a)*0.62,Math.sin(a)*0.62,0);
+        vpos.setXYZ(i,Math.cos(a)*0.70,Math.sin(a)*0.70,0);
+      }
+    }
+    bpos.needsUpdate=true; vpos.needsUpdate=true;
+    vizBlueLoop.material.opacity = 0.12+amplitude*0.7;
+    vizVioletLoop.material.opacity = 0.10+amplitude*0.6;
+  }
+
+  threeRenderer.render(threeScene,threeCamera);
+}
+
+function showCoords(id){
+  const s = pgSources[id];
+  if(!s) return;
+  const el = document.getElementById('pg-coords');
+  el.style.display = 'block';
+  el.textContent = `${id}: x=${s.x.toFixed(1)} y=${s.y.toFixed(1)} z=${s.z.toFixed(1)}`;
+}
+
+function updateStem(id){
+  const stem = sourceStems[id];
+  const mesh = sourceMeshes[id];
+  if(!stem || !mesh) return;
+  const pos = stem.geometry.attributes.position;
+  pos.setXYZ(0, mesh.position.x, 0,               mesh.position.z);
+  pos.setXYZ(1, mesh.position.x, mesh.position.y, mesh.position.z);
+  pos.needsUpdate = true;
+}
+
+function addSourceMesh(id){
+  const s = pgSources[id];
+  const color = new THREE.Color(s.color);
+  const geo = new THREE.SphereGeometry(0.38,18,14);
+  const mat = new THREE.MeshStandardMaterial({
+    color, roughness:0.3, metalness:0.1,
+    emissive:color, emissiveIntensity:0.5
+  });
+  const mesh = new THREE.Mesh(geo,mat);
+  mesh.position.set(s.x,s.y,s.z);
+  mesh.userData.sourceId = id;
+  const light = new THREE.PointLight(color,0.8,4);
+  mesh.add(light);
+  s.light = light;
+  s.mesh = mesh;
+  sourceMeshes[id] = mesh;
+  threeScene.add(mesh);
+
+  // Elevation stem: dashed line from floor (y=0) up to sphere
+  const stemVerts = new Float32Array([s.x, 0, s.z, s.x, s.y, s.z]);
+  const stemGeo = new THREE.BufferGeometry();
+  stemGeo.setAttribute('position', new THREE.BufferAttribute(stemVerts, 3));
+  const stemMat = new THREE.LineBasicMaterial({color: new THREE.Color(s.color), transparent:true, opacity:0.35});
+  const stem = new THREE.Line(stemGeo, stemMat);
+  sourceStems[id] = stem;
+  threeScene.add(stem);
+
+  updateSelectionHighlight();
+}
+
+function removeSourceMesh(id){
+  const mesh = sourceMeshes[id];
+  if(mesh){ threeScene.remove(mesh); }
+  delete sourceMeshes[id];
+  const stem = sourceStems[id];
+  if(stem){ threeScene.remove(stem); stem.geometry.dispose(); stem.material.dispose(); }
+  delete sourceStems[id];
+  if(pgSources[id]) pgSources[id].mesh = null;
+}
+
+function updateSelectionHighlight(){
+  Object.entries(pgSources).forEach(([id,s])=>{
+    if(!s.mesh) return;
+    s.mesh.material.emissiveIntensity = (id === pgSelSrc) ? 0.9 : 0.5;
+  });
+}
+
+// emitEvt helper
+function emitEvt(ev, data){
+  if(!pgSock) return;
+  pgEmit(ev, data);
+}
+
+// socket.io connection
+function pgConnect(){
+  const url = document.getElementById('pg-url').value.trim();
+  pgLog('sys','Connecting to '+url+'...');
+  pgSock = io(url,{transports:['websocket'],reconnection:false});
+
+  pgSock.on('connect',()=>{
+    pgSid = pgSock.id;
+    const pill = document.getElementById('pg-sid-pill');
+    pill.textContent = 'sid '+pgSid.slice(-8);
+    pill.style.display = 'inline-block';
+    setConnDot('on','Connected');
+    pgLog('in','connect','sid='+pgSid);
+    document.getElementById('pg-btn-conn').disabled = true;
+    document.getElementById('pg-btn-disc').disabled = false;
+    document.getElementById('pg-btn-init').disabled = false;
+  });
+
+  pgSock.on('connected',d=>{
+    if(d.session_id){
+      pgSid = d.session_id;
+      document.getElementById('pg-sid-pill').textContent = 'sid '+pgSid.slice(-8);
+    }
+    if(d.sample_rate) serverSampleRate = d.sample_rate;
+    pgLog('in','connected',`rate=${d.sample_rate}Hz buf=${d.buffer_size} sid=${pgSid}`);
+  });
+
+  pgSock.on('status',d=>{
+    pgLog('in','status',`[${d.code}] ${d.message||''}`);
+    if(d.code==='AUDIO_LOADING'){
+      document.getElementById('pg-btn-init').textContent = 'Loading HRTF...';
+      document.getElementById('pg-btn-init').disabled = true;
+    }
+    if(d.code==='AUDIO_INITIALISED'||d.code==='INIT_FAILED'){
+      const ok = d.code==='AUDIO_INITIALISED';
+      pgAudioOk = ok;
+      document.getElementById('pg-btn-init').textContent = ok ? 'Initialised' : 'Retry';
+      document.getElementById('pg-btn-init').disabled = false;
+      if(ok){
+        document.getElementById('step-dot-1').classList.add('done');
+        document.getElementById('pg-btn-add-src').disabled = false;
+      }
+    }
+    if(d.code==='SOURCE_CREATED'){
+      document.getElementById('step-dot-2').classList.add('done');
+      if(d.source_id&&d.position){
+        const s = pgSources[d.source_id];
+        if(s){
+          s.x=d.position.x; s.y=d.position.y; s.z=d.position.z;
+          const mesh = sourceMeshes[d.source_id];
+          if(mesh) mesh.position.set(s.x,s.y,s.z);
+          updateSourceInputs(d.source_id, d.position);
+        }
+      }
+      renderSourceList();
+    }
+    if(d.code==='CREATE_FAILED'){
+      pgLog('err','create_source',d.message||'Source creation failed');
+      const fid = d.source_id;
+      if(fid&&pgSources[fid]){
+        removeSourceMesh(fid);
+        delete pgSources[fid];
+        if(pgSelSrc===fid) pgSelSrc=Object.keys(pgSources)[0]||null;
+        renderSourceList();
+      }
+    }
+    if(d.code==='DECODING'){
+      document.getElementById('pg-stream-status').textContent = `${d.source_id||''}: Decoding...`;
+    }
+    if(d.code==='STREAM_READY'){
+      document.getElementById('pg-prog-fill').style.width = '0%';
+      document.getElementById('pg-step-dot-3') && document.getElementById('step-dot-3').classList.add('done');
+      pgLog('sys','stream',`Ready - ${d.total_buffers} buffers, ${(d.duration_seconds||0).toFixed(2)}s`);
+    }
+    if(d.code==='STREAM_STOPPED'||d.code==='STREAM_COMPLETE'){
+      Object.keys(pgSourceStates).forEach(id=>{ pgSourceStates[id]='idle'; });
+      renderSourceList();
+      document.getElementById('pg-btn-stop').style.display='none';
+      document.getElementById('pg-stream-status').textContent =
+        d.code==='STREAM_COMPLETE' ? 'All done' : 'Stopped';
+      pgLog('sys','stream', d.code==='STREAM_COMPLETE' ? 'All tracks finished' : 'Stopped');
+    }
+    if(d.code==='TRACK_COMPLETE'&&d.source_id){
+      pgSourceStates[d.source_id] = 'idle';
+      renderSourceList();
+      pgLog('sys','stream',`Track finished: ${d.source_id}`);
+      const anyPlaying = Object.values(pgSourceStates).some(s=>s==='playing'||s==='paused');
+      if(!anyPlaying) document.getElementById('pg-btn-stop').style.display='none';
+    }
+    if(d.code==='SOURCE_STOPPED'&&d.source_id){
+      pgSourceStates[d.source_id] = 'idle';
+      renderSourceList();
+    }
+    if(d.code==='STREAM_PAUSED'&&d.source_id){
+      pgSourceStates[d.source_id] = 'paused';
+      renderSourceList();
+    }
+    if(d.code==='STREAM_RESUMED'&&d.source_id){
+      pgSourceStates[d.source_id] = 'playing';
+      renderSourceList();
+    }
+  });
+
+  pgSock.on('file_audio_chunk',d=>{
+    scheduleChunk(d.audio_data);
+    const sp = d.source_positions||{};
+    const info = Object.values(sp)[0];
+    if(info){
+      const pct = Math.round((info.current+1)/info.total*100);
+      document.getElementById('pg-prog-fill').style.width = pct+'%';
+    }
+  });
+
+  pgSock.on('error',d=>{
+    pgLog('err','error',`[${d.code||'ERR'}] ${d.message}`);
+  });
+
+  pgSock.on('disconnect',()=>{
+    setConnDot('','Disconnected');
+    document.getElementById('pg-btn-conn').disabled = false;
+    document.getElementById('pg-btn-disc').disabled = true;
+    document.getElementById('pg-btn-init').disabled = true;
+    document.getElementById('pg-sid-pill').style.display = 'none';
+    pgAudioOk = false; pgSid = null;
+    pgLog('sys','Disconnected','');
+  });
+}
+
+function pgDisconnect(){ if(pgSock){pgSock.disconnect();pgSock=null;} }
+
+// init audio
+function pgInit(){
+  const useUp = document.getElementById('pg-use-uploaded').checked;
+  const hf = document.getElementById('pg-hrtf-name').value.trim();
+  const payload = useUp ? {use_uploaded:true} : {hrtf_file:hf||'p0200.sofa'};
+  pgEmit('init_audio',payload);
+  document.getElementById('pg-btn-init').textContent = 'Initialising...';
+  document.getElementById('pg-btn-init').disabled = true;
+}
+
+async function pgUploadHRTF(inp){
+  if(!inp.files[0]||!pgSid){document.getElementById('pg-hrtf-status').textContent='Connect first';return;}
+  const fd = new FormData(); fd.append('hrtf_file',inp.files[0]);
+  const url = document.getElementById('pg-url').value;
+  document.getElementById('pg-hrtf-status').textContent = 'Uploading...';
+  try{
+    const r = await fetch(`${url}/upload_hrtf/${pgSid}`,{method:'POST',body:fd});
+    const d = await r.json();
+    if(r.ok){
+      document.getElementById('pg-hrtf-status').textContent = d.filename;
+      document.getElementById('pg-use-uploaded').checked = true;
+      pgLog('in','hrtf_upload',d.filename);
+    } else document.getElementById('pg-hrtf-status').textContent = 'Error: '+d.error;
+  }catch(e){document.getElementById('pg-hrtf-status').textContent = 'Failed: '+e.message;}
+}
+
+// sources
+function pgAddSource(){
+  const id = document.getElementById('pg-src-id').value.trim();
+  if(!id){pgLog('err','create_source','Name cannot be empty');return;}
+  if(pgSources[id]){pgLog('err','create_source',`"${id}" already exists`);return;}
+  if(!pgAudioOk){pgLog('err','create_source','Initialise audio first');return;}
+  const x = parseFloat(document.getElementById('pg-sx').value)||0;
+  const y = parseFloat(document.getElementById('pg-sy').value)||0;
+  const z = parseFloat(document.getElementById('pg-sz').value)||0;
+  const color = nextColor();
+  pgSources[id] = {x,y,z,color};
+  pgSelSrc = id;
+  addSourceMesh(id);
+  pgEmit('create_source',{source_id:id,position:{x,y,z}});
+  renderSourceList();
+}
+
+function pgSelectSrc(id){
+  pgSelSrc = id;
+  updateSelectionHighlight();
+  renderSourceList();
+}
+
+function pgRemoveSrc(id){
+  if(pgSock) pgEmit('remove_source',{source_id:id});
+  removeSourceMesh(id);
+  delete pgSources[id];
+  if(pgSelSrc===id) pgSelSrc = Object.keys(pgSources)[0]||null;
+  delete pgUploads[id];
+  delete pgSourceStates[id];
+  updateSelectionHighlight();
+  renderSourceList();
+}
+
+function pgUpdateSrcXYZ(id, axis, val){
+  if(!pgSources[id]) return;
+  pgSources[id][axis] = parseFloat(val) || 0;
+  const mesh = sourceMeshes[id];
+  if(mesh){ mesh.position.set(pgSources[id].x, pgSources[id].y, pgSources[id].z); updateStem(id); }
+  if(pgSock&&pgAudioOk) pgEmitPosition(id);
+}
+
+function renderSourceList(){
+  const el = document.getElementById('pg-source-list');
+  const keys = Object.keys(pgSources);
+  if(!keys.length){
+    el.innerHTML = '<div style="font-size:12px;color:var(--text3);text-align:center;padding:8px 0">No sources yet</div>';
+    return;
+  }
+  el.innerHTML = keys.map(id=>{
+    const s = pgSources[id];
+    const sel = id === pgSelSrc;
+    const upload = pgUploads[id];
+    const state = pgSourceStates[id] || 'idle';
+    const canPlay = upload && pgAudioOk;
+    return `<div class="src-item ${sel?'active':''}" id="src-row-${id}" onclick="pgSelectSrc('${id}')">
+      <div class="src-item-header">
+        <div class="src-dot" style="background:${s.color}"></div>
+        <div class="src-name">${id}</div>
+      </div>
+      <div class="src-xyz-row" onclick="event.stopPropagation()">
+        <div class="src-xyz-col">
+          <div class="src-xyz-label">X</div>
+          <input type="range" class="src-slider src-x" min="-5" max="5" step="0.1" value="${s.x.toFixed(1)}"
+            oninput="pgUpdateSrcXYZ('${id}','x',this.value);this.nextElementSibling.textContent=parseFloat(this.value).toFixed(1)">
+          <span class="src-xyz-val">${s.x.toFixed(1)}</span>
+        </div>
+        <div class="src-xyz-col">
+          <div class="src-xyz-label">Y</div>
+          <input type="range" class="src-slider src-y" min="-5" max="5" step="0.1" value="${s.y.toFixed(1)}"
+            oninput="pgUpdateSrcXYZ('${id}','y',this.value);this.nextElementSibling.textContent=parseFloat(this.value).toFixed(1)">
+          <span class="src-xyz-val">${s.y.toFixed(1)}</span>
+        </div>
+        <div class="src-xyz-col">
+          <div class="src-xyz-label">Z</div>
+          <input type="range" class="src-slider src-z" min="-5" max="5" step="0.1" value="${s.z.toFixed(1)}"
+            oninput="pgUpdateSrcXYZ('${id}','z',this.value);this.nextElementSibling.textContent=parseFloat(this.value).toFixed(1)">
+          <span class="src-xyz-val">${s.z.toFixed(1)}</span>
+        </div>
+      </div>
+      <div class="src-file-row" onclick="event.stopPropagation()">
+        <label class="src-upload-label ${upload?'has-file':''}">
+          ${upload ? upload.origName : '+ Upload audio'}
+          <input type="file" style="display:none" accept=".mp3,.wav,.m4a,.ogg"
+            onchange="pgUploadForSource('${id}',this)">
+        </label>
+        ${canPlay ? `<div class="src-play-row">
+          ${state==='idle'||state==='stopped' ? `<button class="src-pb-btn play" onclick="pgPlaySrc('${id}')">&#9654;</button>` : ''}
+          ${state==='playing' ? `<button class="src-pb-btn pause" onclick="pgPauseSrc('${id}')">&#10074;&#10074;</button>` : ''}
+          ${state==='paused' ? `<button class="src-pb-btn play" onclick="pgResumeSrc('${id}')">&#9654;</button>` : ''}
+          ${state!=='idle'&&state!=='stopped' ? `<button class="src-pb-btn stop" onclick="pgStopSrc('${id}')">&#9632;</button>` : ''}
+        </div>` : ''}
+      </div>
+      <button class="src-del" onclick="event.stopPropagation();pgRemoveSrc('${id}')">x</button>
+    </div>`;
+  }).join('');
+}
+
+function pgEmitPosition(id){
+  pgEmit('update_position',{source_id:id,position:{x:pgSources[id].x,y:pgSources[id].y,z:pgSources[id].z}});
+}
+
+// audio upload + stream
+async function pgUploadForSource(srcId, fileInput){
+  const file = fileInput.files[0];
+  if(!file) return;
+  if(!pgSid){ pgLog('err','upload','Connect first'); return; }
+  const row = document.getElementById('src-row-'+srcId);
+  const label = row ? row.querySelector('.src-upload-label') : null;
+  if(label) label.textContent = 'Uploading…';
+  const fd = new FormData();
+  fd.append('audio_file', file);
+  try{
+    const url = document.getElementById('pg-url').value;
+    const r = await fetch(`${url}/upload/${pgSid}/${encodeURIComponent(srcId)}`,{method:'POST',body:fd});
+    const d = await r.json();
+    if(r.ok){
+      pgUploads[srcId] = {srcId, savedName:d.saved_filename||`${srcId}_${file.name}`, origName:file.name};
+      pgSourceStates[srcId] = pgSourceStates[srcId] || 'idle';
+      pgLog('in','upload',`${srcId}: saved as ${d.saved_filename}`);
+      document.getElementById('pg-stream-status').textContent = `${srcId}: ready`;
+    } else {
+      pgLog('err','upload',d.error);
+    }
+  } catch(e){
+    pgLog('err','upload',e.message);
+  }
+  renderSourceList();
+}
+
+function pgPlaySrc(id){
+  const upload = pgUploads[id];
+  if(!upload||!pgSock||!pgAudioOk) return;
+  if(!audioCtx){ getAudioCtx(); scheduledUntil=0; }
+  pgSourceStates[id] = 'playing';
+  renderSourceList();
+  document.getElementById('pg-btn-stop').style.display = 'block';
+  document.getElementById('pg-stream-status').textContent = `${id}: streaming…`;
+  pgEmit('stream_uploaded_file',{source_id:id, filename:upload.savedName});
+}
+
+function pgPauseSrc(id){
+  if(!pgSock) return;
+  pgSourceStates[id] = 'paused';
+  renderSourceList();
+  pgEmit('pause_stream',{source_id:id});
+}
+
+function pgResumeSrc(id){
+  if(!pgSock) return;
+  pgSourceStates[id] = 'playing';
+  renderSourceList();
+  pgEmit('resume_stream',{source_id:id});
+}
+
+function pgStopSrc(id){
+  if(!pgSock) return;
+  pgSourceStates[id] = 'idle';
+  renderSourceList();
+  pgEmit('stop_source_stream',{source_id:id});
+  const anyPlaying = Object.values(pgSourceStates).some(s=>s==='playing'||s==='paused');
+  if(!anyPlaying) document.getElementById('pg-btn-stop').style.display='none';
+}
+
+function pgStop(){
+  if(pgSock) pgEmit('stop_file_stream',{});
+  Object.keys(pgSourceStates).forEach(id=>{ pgSourceStates[id]='idle'; });
+  renderSourceList();
+  document.getElementById('pg-btn-stop').style.display='none';
+  document.getElementById('pg-stream-status').textContent='Stopped';
+}
+
+// helpers
+function pgEmit(ev,data){
+  if(!pgSock){pgLog('err',ev,'Not connected');return;}
+  pgSock.emit(ev,data);
+  pgLog('out',ev,JSON.stringify(data).slice(0,120));
+}
+
+function pgLog(dir,ev,msg){
+  const el = document.getElementById('pg-log');
+  const t = new Date().toTimeString().slice(0,8);
+  const labels = {out:'emit',in:'recv',err:'err',sys:'sys'};
+  const d = document.createElement('div');
+  d.className = 'log-entry';
+  d.innerHTML = `<span class="log-time">${t}</span><span class="log-dir ${dir}">${labels[dir]||dir}</span><span class="log-msg"><strong>${ev}</strong>${msg?' '+msg:''}</span>`;
+  el.appendChild(d);
+  el.scrollTop = el.scrollHeight;
+  if(el.children.length > 100) el.removeChild(el.firstChild);
+}
+
+function setConnDot(cls,text){
+  document.getElementById('pg-dot').className = 'conn-dot'+(cls?' '+cls:'');
+  document.getElementById('pg-conn-text').textContent = text;
+}
+
+// init
+window.addEventListener('DOMContentLoaded',()=>{
+  initThree();
+  renderSourceList();
+  pgLog('sys','ready','Connect to your SpatialSocket server to begin');
+});
+
+// benchmark
+let benchAudioFile = null;
+let benchWSResults = null, benchHTTPResults = null;
+let benchRunning = false;
+
+function benchSetAudio(input){
+  benchAudioFile = input.files[0] || null;
+  document.getElementById('bench-audio-name').value = benchAudioFile ? benchAudioFile.name : '';
+}
+
+function showBenchTab(name, btn){
+  document.querySelectorAll('.bench-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.bench-panel').forEach(p=>p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('bpanel-'+name).classList.add('active');
+}
+
+function generateTestWav(sec=3, freq=440, sr=44100){
+  const n=sr*sec, buf=new ArrayBuffer(44+n*2), v=new DataView(buf);
+  const w=(o,s)=>{for(let i=0;i<s.length;i++) v.setUint8(o+i,s.charCodeAt(i));};
+  w(0,'RIFF'); v.setUint32(4,36+n*2,true); w(8,'WAVE');
+  w(12,'fmt '); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,sr,true); v.setUint32(28,sr*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
+  w(36,'data'); v.setUint32(40,n*2,true);
+  for(let i=0;i<n;i++)
+    v.setInt16(44+i*2, Math.round(32767*0.3*Math.sin(2*Math.PI*freq*i/sr)), true);
+  return new Blob([buf],{type:'audio/wav'});
+}
+
+function getBenchAudio(){ return benchAudioFile || generateTestWav(); }
+
+const bOk  = rs => rs.filter(r=>!r.error);
+const bGet = (rs,k) => bOk(rs).map(r=>r[k]).filter(v=>Number.isFinite(v)&&v>0);
+const bMean= a => a.length ? a.reduce((s,x)=>s+x,0)/a.length : NaN;
+const bP95 = a => { if(!a.length) return NaN; const s=[...a].sort((a,b)=>a-b); return s[Math.max(0,Math.floor(a.length*.95))]; };
+const bSD  = a => { if(a.length<2) return NaN; const m=bMean(a); return Math.sqrt(a.reduce((s,x)=>s+(x-m)**2,0)/a.length); };
+const bFmt = (v,u='ms',d=1) => !Number.isFinite(v)?'-':`${v.toFixed(d)} ${u}`;
+const bJitter = r => bSD(r.chunkIntervals||[]);
+
+function runWSSingleSession(wsUrl, audioBlob, nChunks){
+  return new Promise(resolve=>{
+    const r={transport:'WebSocket',connect_ms:0,init_ms:0,upload_ms:0,rtt_ms:0,
+              first_chunk_ms:0,chunks:0,bytes:0,chunkIntervals:[],
+              network_latency_ms:[],memory_delta_mb:NaN,pos_rtt_ms:NaN,
+              error:null};
+    let sid=null, savedFilename=null, initT=0, rttT=0, streamT=0, lastT=0, done=false;
+    let posRtts=[], posPending={}, posSeq=0;
+
+    const finish=()=>{ if(done)return; done=true;
+      if(posRtts.length) r.pos_rtt_ms=posRtts.reduce((s,v)=>s+v,0)/posRtts.length;
+      try{sock.disconnect();}catch(e){} resolve(r); };
+    setTimeout(()=>{ r.error=r.error||'timeout (90s)'; finish(); },90000);
+
+    const sock=io(wsUrl,{transports:['websocket'],reconnection:false});
+    const t0=performance.now();
+
+    sock.on('connect_error', e=>{ r.error='connect_error: '+e.message; finish(); });
+    sock.on('connected', d=>{
+      sid=d.session_id||sock.id;
+      r.connect_ms=performance.now()-t0;
+      initT=performance.now();
+      sock.emit('init_audio',{});
+    });
+
+    sock.on('status', async d=>{
+      if(done) return;
+      if(d.code==='AUDIO_INITIALISED'){
+        r.init_ms=performance.now()-initT;
+        if(Number.isFinite(d.memory_delta_mb)) r.memory_delta_mb=d.memory_delta_mb;
+        const upT=performance.now();
+        const fd=new FormData(); fd.append('audio_file',audioBlob,'bench.wav');
+        try{
+          const resp=await fetch(`${wsUrl}/upload/${sid}/bench_src`,{method:'POST',body:fd});
+          if(!resp.ok) throw new Error('HTTP '+resp.status);
+          const dat=await resp.json();
+          r.upload_ms=performance.now()-upT;
+          savedFilename=dat.saved_filename;
+          rttT=performance.now();
+          sock.emit('create_source',{source_id:'bench_src',position:{x:1,y:0,z:0}});
+        }catch(e){ r.error='upload: '+e.message; finish(); }
+      }
+      if(d.code==='SOURCE_CREATED'){
+        r.rtt_ms=performance.now()-rttT;
+        const posAngles=Array.from({length:10},(_,i)=>i*36*Math.PI/180);
+        for(const angle of posAngles){
+          const seq=++posSeq;
+          posPending[seq]=performance.now();
+          sock.emit('update_position',{source_id:'bench_src',
+            position:{x:Math.cos(angle),y:0,z:Math.sin(angle)},_seq:seq});
+        }
+        streamT=performance.now();
+        sock.emit('stream_uploaded_file',{source_id:'bench_src',filename:savedFilename});
+      }
+      if(d.code==='POSITION_UPDATED'){
+        const seq=d._seq;
+        if(seq && posPending[seq]){ posRtts.push(performance.now()-posPending[seq]); delete posPending[seq]; }
+        else { // fallback: use the oldest pending
+          const keys=Object.keys(posPending);
+          if(keys.length){ const k=keys[0]; posRtts.push(performance.now()-posPending[k]); delete posPending[k]; }
+        }
+      }
+    });
+
+    sock.on('file_audio_chunk', d=>{
+      if(done) return;
+      const now=performance.now();
+      if(r.chunks===0){ r.first_chunk_ms=now-streamT; }
+      else { r.chunkIntervals.push(now-lastT); }
+      // one-way network latency ≈ client wall-clock minus server render timestamp
+      if(d.render_ts){ const net=Date.now()-d.render_ts; if(net>=0&&net<5000) r.network_latency_ms.push(net); }
+      lastT=now; r.chunks++;
+      r.bytes+=Math.round((d.audio_data?.length||0)*0.75);
+      if(r.chunks>=nChunks) finish();
+    });
+
+    sock.on('error', d=>{ r.error=d.message||'server error'; finish(); });
+    sock.on('disconnect', ()=>{ if(!done) finish(); });
+  });
+}
+
+async function runHTTPSingleSession(httpUrl, audioBlob, nChunks){
+  const r={transport:'HTTP+SSE',connect_ms:0,init_ms:0,upload_ms:0,rtt_ms:0,
+            first_chunk_ms:0,chunks:0,bytes:0,chunkIntervals:[],
+            network_latency_ms:[],memory_delta_mb:NaN,pos_rtt_ms:NaN,
+            error:null};
+  const t0=performance.now();
+  let sid;
+  try{
+    const resp=await fetch(`${httpUrl}/api/session`,{method:'POST'});
+    if(!resp.ok) throw new Error('HTTP '+resp.status);
+    sid=(await resp.json()).session_id;
+    r.connect_ms=performance.now()-t0;
+  }catch(e){ r.error='session: '+e.message; return r; }
+
+  const pending={};
+  let chunkCb=null;
+  const es=new EventSource(`${httpUrl}/api/${sid}/events`);
+  es.addEventListener('status', e=>{
+    const d=JSON.parse(e.data), fn=pending[d.code];
+    if(fn){ delete pending[d.code]; fn(d); }
+  });
+  es.addEventListener('audio_chunk', e=>{ if(chunkCb) chunkCb(JSON.parse(e.data)); });
+  const waitFor=(code,ms=60000)=>new Promise((res,rej)=>{
+    pending[code]=res;
+    setTimeout(()=>{ delete pending[code]; rej(new Error('timeout: '+code)); },ms);
+  });
+
+  await new Promise(res=>setTimeout(res,80)); // let SSE connect
+
+  try{
+    const initT=performance.now();
+    const ir=await fetch(`${httpUrl}/api/${sid}/init`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    if(!ir.ok) throw new Error('init '+ir.status);
+    const initD=await waitFor('AUDIO_INITIALISED',60000);
+    r.init_ms=performance.now()-initT;
+    if(Number.isFinite(initD?.memory_delta_mb)) r.memory_delta_mb=initD.memory_delta_mb;
+
+    const upT=performance.now();
+    const fd=new FormData(); fd.append('file',audioBlob,'bench.wav');
+    const ur=await fetch(`${httpUrl}/api/${sid}/sources/bench_src/upload`,{method:'POST',body:fd});
+    if(!ur.ok) throw new Error('upload '+ur.status);
+    const udat=await ur.json();
+    r.upload_ms=performance.now()-upT;
+    const savedFilename=udat.saved_filename;
+
+    const rttT=performance.now();
+    const cr=await fetch(`${httpUrl}/api/${sid}/sources`,{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({source_id:'bench_src',position:{x:1,y:0,z:0}})});
+    if(!cr.ok) throw new Error('create_source '+cr.status);
+    r.rtt_ms=performance.now()-rttT;
+
+    {
+      const posAngles=Array.from({length:10},(_,i)=>i*36*Math.PI/180);
+      const posRtts=await Promise.all(posAngles.map(async angle=>{
+        const t=performance.now();
+        await fetch(`${httpUrl}/api/${sid}/sources/bench_src/position`,{method:'PATCH',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({position:{x:Math.cos(angle),y:0,z:Math.sin(angle)}})});
+        return performance.now()-t;
+      }));
+      r.pos_rtt_ms=posRtts.reduce((s,v)=>s+v,0)/posRtts.length;
+    }
+
+    const streamT=performance.now();
+    const sr=await fetch(`${httpUrl}/api/${sid}/sources/bench_src/stream`,{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({filename:savedFilename})});
+    if(!sr.ok) throw new Error('stream '+sr.status);
+    await waitFor('STREAM_READY',30000);
+
+    let lastT=0;
+    await new Promise((res,rej)=>{
+      setTimeout(()=>rej(new Error('timeout collecting chunks')),60000);
+      chunkCb=d=>{
+        const now=performance.now();
+        if(r.chunks===0){ r.first_chunk_ms=now-streamT; }
+        else { r.chunkIntervals.push(now-lastT); }
+        // one-way network latency ≈ client wall-clock minus server render_ts
+        if(d.render_ts){ const net=Date.now()-d.render_ts; if(net>=0&&net<5000) r.network_latency_ms.push(net); }
+        lastT=now; r.chunks++;
+        r.bytes+=Math.round((d.audio_data?.length||0)*0.75);
+        if(r.chunks>=nChunks) res();
+      };
+    });
+  }catch(e){ r.error=e.message; }
+
+  es.close();
+  fetch(`${httpUrl}/api/session/${sid}`,{method:'DELETE'}).catch(()=>{});
+  return r;
+}
+
+function renderBenchCards(results, el){
+  const ok=bOk(results);
+  if(!ok.length){ el.innerHTML=''; return; }
+  const card=(label,v,unit,sub)=>`
+    <div class="bench-card">
+      <div class="bench-card-label">${label}</div>
+      <div class="bench-card-val">${Number.isFinite(v)?v.toFixed(1):'-'}<span class="bench-card-unit">${unit}</span></div>
+      ${sub?`<div class="bench-card-sub">${sub}</div>`:''}
+    </div>`;
+  const rttV=bGet(results,'rtt_ms'), fcV=bGet(results,'first_chunk_ms');
+  const jV=ok.map(r=>bJitter(r)).filter(Number.isFinite);
+  const bwV=ok.map(r=>r.bytes/1024).filter(v=>v>0);
+  const netV=ok.map(r=>{ const a=r.network_latency_ms||[]; return a.length?a.reduce((s,x)=>s+x,0)/a.length:NaN; }).filter(Number.isFinite);
+  const memV=ok.map(r=>r.memory_delta_mb).filter(Number.isFinite);
+  const posV=ok.map(r=>r.pos_rtt_ms).filter(Number.isFinite);
+  el.innerHTML=`<div class="bench-cards">
+    ${card('Transport RTT',bMean(rttV),'ms',`p95 ${bFmt(bP95(rttV))}`)}
+    ${card('Pipeline Latency',bMean(fcV),'ms',`p95 ${bFmt(bP95(fcV))}`)}
+    ${card('Network Latency',bMean(netV),'ms','one-way (clock approx)')}
+    ${card('Chunk Jitter σ',bMean(jV),'ms',`${ok.length}/${results.length} ok`)}
+    ${card('Pos Update RTT',bMean(posV),'ms','10 rapid updates')}
+    ${card('Session Memory',bMean(memV),'MB','HRTF init delta')}
+    ${card('Data Received',bMean(bwV),'KB','avg/session')}
+  </div>`;
+}
+
+function renderBenchTable(results, el){
+  const ok=bOk(results);
+  if(!ok.length){ el.innerHTML=''; return; }
+  const row=(label,vals,u='ms',d=1)=>`<tr>
+    <td>${label}</td>
+    <td class="bench-mono">${bFmt(bMean(vals),u,d)}</td>
+    <td class="bench-mono">${bFmt(bP95(vals),u,d)}</td>
+    <td class="bench-mono">${bFmt(bSD(vals),u,d)}</td>
+  </tr>`;
+  const jV=ok.map(r=>bJitter(r)).filter(Number.isFinite);
+  const netV=ok.map(r=>{ const a=r.network_latency_ms||[]; return a.length?a.reduce((s,x)=>s+x,0)/a.length:NaN; }).filter(Number.isFinite);
+  const memV=ok.map(r=>r.memory_delta_mb).filter(Number.isFinite);
+  const posV=ok.map(r=>r.pos_rtt_ms).filter(Number.isFinite);
+  el.innerHTML=`<table class="bench-tbl" style="margin-top:4px">
+    <thead><tr><th>Metric</th><th>Mean</th><th>p95</th><th>Std Dev</th></tr></thead>
+    <tbody>
+      ${row('Connect / session create',        bGet(results,'connect_ms'))}
+      ${row('HRTF init',                        bGet(results,'init_ms'))}
+      ${row('Audio upload',                     bGet(results,'upload_ms'))}
+      ${row('Transport RTT (CREATE_SOURCE)',    bGet(results,'rtt_ms'))}
+      ${row('Pipeline: stream → first chunk',   bGet(results,'first_chunk_ms'))}
+      ${row('Network latency (one-way approx)', netV)}
+      ${row('Position update RTT (10 updates)', posV)}
+      ${row('Session memory delta (HRTF init)', memV,'MB',2)}
+      ${row('Chunk jitter σ',                   jV)}
+      ${row('Chunks received',                  ok.map(r=>r.chunks),'',0)}
+      ${row('Data received',                    ok.map(r=>r.bytes/1024),'KB',1)}
+    </tbody>
+  </table>`;
+}
+
+function renderBenchCompare(wsR, httpR, el){
+  const wsOk=bOk(wsR), httpOk=bOk(httpR);
+  if(!wsOk.length&&!httpOk.length){ el.innerHTML='<div style="color:var(--text3);font-size:13px">No results yet.</div>'; return; }
+
+  const getV=(rs,k)=>{
+    if(k==='_jitter') return bMean(bOk(rs).map(r=>bJitter(r)).filter(Number.isFinite));
+    if(k==='_net')    return bMean(bOk(rs).map(r=>{ const a=r.network_latency_ms||[]; return a.length?a.reduce((s,x)=>s+x,0)/a.length:NaN; }).filter(Number.isFinite));
+    if(k==='_mem')    return bMean(bOk(rs).map(r=>r.memory_delta_mb).filter(Number.isFinite));
+    if(k==='_pos')    return bMean(bOk(rs).map(r=>r.pos_rtt_ms).filter(Number.isFinite));
+    return bMean(bGet(rs,k));
+  };
+
+  const metrics=[
+    {k:'rtt_ms',        label:'Transport RTT'},
+    {k:'first_chunk_ms',label:'Pipeline latency'},
+    {k:'_net',          label:'Network latency (one-way)'},
+    {k:'_pos',          label:'Position update RTT'},
+    {k:'_jitter',       label:'Chunk jitter σ'},
+    {k:'connect_ms',    label:'Connect time'},
+    {k:'init_ms',       label:'HRTF init'},
+    {k:'upload_ms',     label:'Upload time'},
+    {k:'_mem',          label:'Session memory (MB)'},
+  ];
+
+  const badge=(wv,hv)=>{
+    if(!Number.isFinite(wv)||!Number.isFinite(hv)) return '';
+    const d=Math.abs(wv-hv)/Math.max(wv,hv);
+    if(d<0.05) return '<span class="bench-badge tie">≈ tie</span>';
+    return wv<hv
+      ? '<span class="bench-badge ws">WS faster</span>'
+      : '<span class="bench-badge http">HTTP faster</span>';
+  };
+
+  const barRow=(label,wv,hv)=>{
+    const mx=Math.max(wv||0,hv||0,.001);
+    const wp=(Number.isFinite(wv)?wv/mx*100:0).toFixed(1);
+    const hp=(Number.isFinite(hv)?hv/mx*100:0).toFixed(1);
+    const fv=v=>Number.isFinite(v)?v.toFixed(1):'-';
+    return `<div style="margin-bottom:18px">
+      <div style="display:flex;align-items:center;gap:5px;margin-bottom:6px">
+        <span style="font-size:12px;color:var(--text2);flex:1">${label}</span>${badge(wv,hv)}
+      </div>
+      <div style="display:grid;grid-template-columns:56px 1fr 44px;align-items:center;gap:8px;margin-bottom:4px">
+        <span style="font-size:11px;color:#2563eb;font-family:'JetBrains Mono',monospace;text-align:right">${fv(wv)}</span>
+        <div style="height:7px;background:var(--border);border-radius:4px;overflow:hidden">
+          <div style="width:${wp}%;height:100%;background:#2563eb;border-radius:4px;transition:width .5s"></div>
+        </div>
+        <span style="font-size:10px;color:var(--text3)">WS</span>
+      </div>
+      <div style="display:grid;grid-template-columns:56px 1fr 44px;align-items:center;gap:8px">
+        <span style="font-size:11px;color:#8b5cf6;font-family:'JetBrains Mono',monospace;text-align:right">${fv(hv)}</span>
+        <div style="height:7px;background:var(--border);border-radius:4px;overflow:hidden">
+          <div style="width:${hp}%;height:100%;background:#8b5cf6;border-radius:4px;transition:width .5s"></div>
+        </div>
+        <span style="font-size:10px;color:var(--text3)">HTTP</span>
+      </div>
+    </div>`;
+  };
+
+  const wsV={}, httpV={};
+  metrics.forEach(m=>{ wsV[m.k]=getV(wsR,m.k); httpV[m.k]=getV(httpR,m.k); });
+
+  el.innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:28px">
+      <div style="padding:16px;border-radius:10px;border:1px solid #bfdbfe;background:rgba(219,234,254,.25)">
+        <div style="font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:#2563eb;margin-bottom:8px">WebSocket</div>
+        <div style="font-size:11px;color:var(--text2)">${wsOk.length}/${wsR.length} sessions OK</div>
+        <div style="font-size:13px;margin-top:6px">RTT: <strong class="bench-mono">${bFmt(wsV.rtt_ms)}</strong> &nbsp;·&nbsp; Pipeline: <strong class="bench-mono">${bFmt(wsV.first_chunk_ms)}</strong> &nbsp;·&nbsp; Net: <strong class="bench-mono">${bFmt(wsV._net)}</strong></div>
+      </div>
+      <div style="padding:16px;border-radius:10px;border:1px solid #ddd6fe;background:rgba(237,233,254,.25)">
+        <div style="font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:#7c3aed;margin-bottom:8px">HTTP+SSE</div>
+        <div style="font-size:11px;color:var(--text2)">${httpOk.length}/${httpR.length} sessions OK</div>
+        <div style="font-size:13px;margin-top:6px">RTT: <strong class="bench-mono">${bFmt(httpV.rtt_ms)}</strong> &nbsp;·&nbsp; Pipeline: <strong class="bench-mono">${bFmt(httpV.first_chunk_ms)}</strong> &nbsp;·&nbsp; Net: <strong class="bench-mono">${bFmt(httpV._net)}</strong></div>
+      </div>
+    </div>
+    <div>${metrics.map(m=>barRow(m.label,wsV[m.k],httpV[m.k])).join('')}</div>`;
+}
+
+function benchSetButtons(disabled){
+  ['bench-btn-ws','bench-btn-http','bench-btn-cmp'].forEach(id=>{
+    document.getElementById(id).disabled=disabled;
+  });
+}
+
+async function benchRunWS(){
+  if(benchRunning) return;
+  benchRunning=true; benchSetButtons(true);
+  showBenchTab('ws',document.getElementById('btab-ws'));
+  const wsUrl=document.getElementById('bench-ws-url').value.trim();
+  const n=Math.max(1,parseInt(document.getElementById('bench-sessions').value)||1);
+  const chunks=Math.max(5,parseInt(document.getElementById('bench-chunks').value)||20);
+  const audio=getBenchAudio();
+  const statEl=document.getElementById('bstat-ws');
+  statEl.innerHTML='<div class="bench-spinner"></div> Running '+n+' session(s)…';
+  try{
+    let done=0;
+    benchWSResults=await Promise.all(
+      Array.from({length:n},()=>runWSSingleSession(wsUrl,audio,chunks).then(r=>{
+        statEl.innerHTML='<div class="bench-spinner"></div> '+(++done)+'/'+n+' complete…'; return r;
+      }))
+    );
+    const ok=bOk(benchWSResults).length;
+    statEl.innerHTML=`✓ ${ok}/${n} sessions succeeded`;
+    renderBenchCards(benchWSResults,document.getElementById('bcards-ws'));
+    renderBenchTable(benchWSResults,document.getElementById('btable-ws'));
+    if(benchHTTPResults) renderBenchCompare(benchWSResults,benchHTTPResults,document.getElementById('bcmp-content'));
+  }catch(e){ statEl.textContent='Error: '+e.message; }
+  finally{ benchRunning=false; benchSetButtons(false); }
+}
+
+async function benchRunHTTP(){
+  if(benchRunning) return;
+  benchRunning=true; benchSetButtons(true);
+  showBenchTab('http',document.getElementById('btab-http'));
+  const httpUrl=document.getElementById('bench-http-url').value.trim();
+  const n=Math.max(1,parseInt(document.getElementById('bench-sessions').value)||1);
+  const chunks=Math.max(5,parseInt(document.getElementById('bench-chunks').value)||20);
+  const audio=getBenchAudio();
+  const statEl=document.getElementById('bstat-http');
+  statEl.innerHTML='<div class="bench-spinner"></div> Running '+n+' session(s)…';
+  try{
+    let done=0;
+    benchHTTPResults=await Promise.all(
+      Array.from({length:n},()=>runHTTPSingleSession(httpUrl,audio,chunks).then(r=>{
+        statEl.innerHTML='<div class="bench-spinner"></div> '+(++done)+'/'+n+' complete…'; return r;
+      }))
+    );
+    const ok=bOk(benchHTTPResults).length;
+    statEl.innerHTML=`✓ ${ok}/${n} sessions succeeded`;
+    renderBenchCards(benchHTTPResults,document.getElementById('bcards-http'));
+    renderBenchTable(benchHTTPResults,document.getElementById('btable-http'));
+    if(benchWSResults) renderBenchCompare(benchWSResults,benchHTTPResults,document.getElementById('bcmp-content'));
+  }catch(e){ statEl.textContent='Error: '+e.message; }
+  finally{ benchRunning=false; benchSetButtons(false); }
+}
+
+async function benchRunCompare(){
+  if(benchRunning) return;
+  benchRunning=true; benchSetButtons(true);
+  showBenchTab('cmp',document.getElementById('btab-cmp'));
+  const wsUrl=document.getElementById('bench-ws-url').value.trim();
+  const httpUrl=document.getElementById('bench-http-url').value.trim();
+  const n=Math.max(1,parseInt(document.getElementById('bench-sessions').value)||1);
+  const chunks=Math.max(5,parseInt(document.getElementById('bench-chunks').value)||20);
+  const audio=getBenchAudio();
+  const cmpStat=document.getElementById('bstat-cmp');
+  const wsStat=document.getElementById('bstat-ws');
+  const httpStat=document.getElementById('bstat-http');
+  cmpStat.innerHTML='<div class="bench-spinner"></div> Running WebSocket & HTTP+SSE in parallel…';
+  wsStat.innerHTML='<div class="bench-spinner"></div> Running…';
+  httpStat.innerHTML='<div class="bench-spinner"></div> Running…';
+  try{
+    const [wsRes,httpRes]=await Promise.all([
+      Promise.all(Array.from({length:n},()=>runWSSingleSession(wsUrl,audio,chunks))),
+      Promise.all(Array.from({length:n},()=>runHTTPSingleSession(httpUrl,audio,chunks))),
+    ]);
+    benchWSResults=wsRes; benchHTTPResults=httpRes;
+    const wo=bOk(wsRes).length, ho=bOk(httpRes).length;
+    wsStat.innerHTML=`✓ ${wo}/${n} ok`;
+    httpStat.innerHTML=`✓ ${ho}/${n} ok`;
+    cmpStat.innerHTML=`✓ Complete - WS: ${wo}/${n} &nbsp;·&nbsp; HTTP: ${ho}/${n}`;
+    renderBenchCards(wsRes,document.getElementById('bcards-ws'));
+    renderBenchTable(wsRes,document.getElementById('btable-ws'));
+    renderBenchCards(httpRes,document.getElementById('bcards-http'));
+    renderBenchTable(httpRes,document.getElementById('btable-http'));
+    renderBenchCompare(wsRes,httpRes,document.getElementById('bcmp-content'));
+  }catch(e){ cmpStat.textContent='Error: '+e.message; }
+  finally{ benchRunning=false; benchSetButtons(false); }
+}
+</script>
+</body>
+</html>

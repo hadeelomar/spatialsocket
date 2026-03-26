@@ -1,7 +1,7 @@
 import time
 from collections import deque
 from threading import Lock
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 class PerformanceMonitor:
     def __init__(self, window_size: int = 100):
@@ -19,17 +19,14 @@ class PerformanceMonitor:
         self.bytes_out = 0
         self.start_time = time.time()
         
-        # Per-session metrics
         self.session_metrics: Dict[str, Dict[str, Any]] = {}
 
     def record_receive_timestamp(self, session_id: str):
-        """Record when a message is received"""
+        """record when a message is received."""
         with self.lock:
             timestamp = time.time()
             self.message_timestamps.append(timestamp)
             self.total_messages += 1
-            
-            # Initialise session metrics if not exists
             if session_id not in self.session_metrics:
                 self.session_metrics[session_id] = {
                     'messages': 0,
@@ -44,7 +41,7 @@ class PerformanceMonitor:
             self.session_metrics[session_id]['last_activity'] = timestamp
 
     def record_processing_start(self, session_id: str):
-        """Record when processing starts"""
+        """record when processing starts."""
         with self.lock:
             timestamp = time.time()
             if session_id not in self.session_metrics:
@@ -61,106 +58,97 @@ class PerformanceMonitor:
                 self.session_metrics[session_id]['processing_start'] = timestamp
 
     def record_processing_end(self, session_id: str):
-        """Record when processing ends and calculate processing time"""
+        """record when processing ends and calculate processing time."""
         with self.lock:
             end_time = time.time()
-            
             if session_id in self.session_metrics and 'processing_start' in self.session_metrics[session_id]:
                 start_time = self.session_metrics[session_id]['processing_start']
                 processing_time = end_time - start_time
                 self.processing_times.append(processing_time)
-                
-                # Clean up the start timestamp
                 del self.session_metrics[session_id]['processing_start']
 
     def record_send_timestamp(self, session_id: str):
-        """Record when a response is sent"""
+        """record when a response is sent."""
         with self.lock:
             timestamp = time.time()
-            
-            # Calculate latency if we have a receive timestamp
             if self.message_timestamps:
                 receive_time = self.message_timestamps[-1]
                 latency = timestamp - receive_time
                 self.latencies.append(latency)
 
     def increment_frames_processed(self, session_id: str, count: int = 1):
-        """Increment frame counter"""
+        """increment frame counter."""
         with self.lock:
             self.frames_processed += count
             if session_id in self.session_metrics:
                 self.session_metrics[session_id]['frames_processed'] += count
 
     def increment_bytes_in(self, session_id: str, count: int):
-        """Increment incoming bytes counter"""
+        """increment incoming bytes counter."""
         with self.lock:
             self.bytes_in += count
             if session_id in self.session_metrics:
                 self.session_metrics[session_id]['bytes_in'] += count
 
     def increment_bytes_out(self, session_id: str, count: int):
-        """Increment outgoing bytes counter"""
+        """increment outgoing bytes counter."""
         with self.lock:
             self.bytes_out += count
             if session_id in self.session_metrics:
                 self.session_metrics[session_id]['bytes_out'] += count
     
     def increment_source_count(self, session_id: str):
-        """Increment source counter for a session"""
+        """increment source counter for a session."""
         with self.lock:
             if session_id in self.session_metrics:
                 self.session_metrics[session_id]['source_count'] += 1
     
     def decrement_source_count(self, session_id: str):
-        """Decrement source counter for a session"""
+        """decrement source counter for a session."""
         with self.lock:
             if session_id in self.session_metrics:
                 self.session_metrics[session_id]['source_count'] = max(0, self.session_metrics[session_id]['source_count'] - 1)
     
     def set_source_count(self, session_id: str, count: int):
-        """Set source counter for a session"""
+        """set source counter for a session."""
         with self.lock:
             if session_id in self.session_metrics:
                 self.session_metrics[session_id]['source_count'] = max(0, count)
 
     def increment_errors(self):
-        """Increment error counter"""
+        """increment error counter."""
         with self.lock:
             self.total_errors += 1
 
     def get_average_latency(self) -> float:
-        """Get average latency over the window"""
+        """get average latency over the window."""
         with self.lock:
             if not self.latencies:
                 return 0.0
             return sum(self.latencies) / len(self.latencies)
 
     def get_average_processing_time(self) -> float:
-        """Get average processing time over the window"""
+        """get average processing time over the window."""
         with self.lock:
             if not self.processing_times:
                 return 0.0
             return sum(self.processing_times) / len(self.processing_times)
 
     def get_messages_per_second(self) -> float:
-        """Get messages per second over the window"""
+        """get messages per second over the window."""
         with self.lock:
             if not self.message_timestamps or len(self.message_timestamps) < 2:
                 return 0.0
-            
             time_span = self.message_timestamps[-1] - self.message_timestamps[0]
             if time_span <= 0:
                 return 0.0
-            
             return len(self.message_timestamps) / time_span
 
     def to_dict(self) -> Dict[str, Any]:
-        """Export all metrics as a dictionary"""
+        """export all metrics as a dictionary."""
         with self.lock:
             current_time = time.time()
             uptime = current_time - self.start_time
-            
-            # Calculate averages
             avg_latency = self.get_average_latency()
             avg_processing_time = self.get_average_processing_time()
             messages_per_second = self.get_messages_per_second()
@@ -188,7 +176,7 @@ class PerformanceMonitor:
             }
 
     def cleanup_session(self, session_id: str):
-        """Remove metrics for a disconnected session"""
+        """remove metrics for a disconnected session."""
         with self.lock:
             if session_id in self.session_metrics:
                 del self.session_metrics[session_id]
