@@ -14,9 +14,10 @@ class Config:
     SESSION_TIMEOUT_SECONDS = int(os.environ.get('SESSION_TIMEOUT_SECONDS', 86400))
     SESSION_CLEANUP_INTERVAL = int(os.environ.get('SESSION_CLEANUP_INTERVAL', 60))
 
-    HRTF_DATASETS_DIR = os.environ.get('HRTF_DATASETS_DIR', 'hrtf_datasets')
+    _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    HRTF_DATASETS_DIR = os.environ.get('HRTF_DATASETS_DIR', os.path.join(_PROJECT_ROOT, 'hrtf_datasets'))
     DEFAULT_HRTF_FILE = os.environ.get('DEFAULT_HRTF_FILE', 'p0200.sofa')
-    HRTF_UPLOAD_DIR = os.environ.get('HRTF_UPLOAD_DIR', 'hrtf_uploads')
+    HRTF_UPLOAD_DIR = os.environ.get('HRTF_UPLOAD_DIR', os.path.join(_PROJECT_ROOT, 'hrtf_uploads'))
 
     CORS_ALLOWED_ORIGINS = '*'
 

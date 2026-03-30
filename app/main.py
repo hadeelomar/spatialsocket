@@ -1,3 +1,6 @@
+from gevent import monkey
+monkey.patch_all()
+
 from dotenv import load_dotenv
 load_dotenv()
 import os
@@ -5,6 +8,8 @@ import time
 import logging
 import atexit
 import threading
+import gevent
+from gevent.threadpool import ThreadPool as _GeventThreadPool
 from flask import Flask, jsonify, request, send_file
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
@@ -43,9 +48,9 @@ def allowed_file(filename: str, extensions: list = None) -> bool:
 socketio = SocketIO(
     app,
     cors_allowed_origins=config.CORS_ALLOWED_ORIGINS,
-    async_mode='threading',
+    async_mode='gevent',
     ping_interval=25,
-    ping_timeout=120,   # sofa files can take 10-60s to load; keep alive
+    ping_timeout=120,
 )
 
 session_manager = SessionManager(
@@ -55,11 +60,21 @@ session_manager = SessionManager(
 performance_monitor = PerformanceMonitor()
 audio_processors: Dict[str, AudioProcessor] = {}
 source_manager = SourceManager()
-file_stream_state: Dict[str, dict] = {}  # {session_id: {source_id: {'buffers': list, 'pos': int}}}
-file_stream_locks: Dict[str, threading.Lock] = {}
-file_stream_stop: Dict[str, threading.Event] = {}
-file_stream_paused: Dict[str, set] = {}  # {session_id: set of paused source_ids}
-decoded_buffer_cache: Dict[str, list] = {}  # {file_path: pre-decoded buffers}
+_g_stream_states: Dict[str, dict] = {}   # {session_id: {source_id: {'buffers': list, 'pos': int}}}
+_g_stream_locks: Dict[str, threading.Lock] = {}
+_g_stream_active: set = set()            # sessions the global render loop should tick
+_g_stream_paused: Dict[str, set] = {}   # {session_id: set of paused source_ids}
+_g_lock = threading.Lock()              # guards _g_stream_active
+decoded_buffer_cache: Dict[str, list] = {}
+
+_cpu = os.cpu_count() or 4
+# py3dti releases GIL during DSP — real OS threads give true parallelism
+# hrtf_pool=50: 100 sessions / 50 threads = 2 batches × ~5s = ~10s (within benchmark timeout)
+# render_pool=50: covers all 100 sessions; GIL released so they run in parallel
+# setup_pool=16: for interactive create_source / update_pos (20-50ms each)
+_hrtf_pool   = _GeventThreadPool(50)   # parallel HRTF loading — dominant bottleneck for 100 sessions
+_render_pool = _GeventThreadPool(50)   # parallel render ticks
+_setup_pool  = _GeventThreadPool(16)   # interactive py3dti ops
 
 def shutdown_server():
     logging.info("shutting down server...")
@@ -263,8 +278,13 @@ def handle_connect():
             session = session_manager.migrate_session(old_id, session_id)
             if session and old_id in audio_processors:
                 audio_processors[session_id] = audio_processors.pop(old_id)
-                if old_id in file_stream_state:
-                    file_stream_state[session_id] = file_stream_state.pop(old_id)
+                if old_id in _g_stream_states:
+                    _g_stream_states[session_id] = _g_stream_states.pop(old_id)
+                    _g_stream_locks[session_id] = _g_stream_locks.pop(old_id, threading.Lock())
+                    with _g_lock:
+                        if old_id in _g_stream_active:
+                            _g_stream_active.discard(old_id)
+                            _g_stream_active.add(session_id)
             recovered = True
 
     if not recovered:
@@ -293,6 +313,8 @@ def handle_disconnect():
     if session:
         session.set_stream_state(StreamState.STOPPING)
     
+    _stop_file_stream(session_id)
+
     if session_id in audio_processors:
         try:
             processor = audio_processors[session_id]
@@ -376,7 +398,12 @@ def handle_init_audio(data=None):
         _proc = psutil.Process()
         rss_before = _proc.memory_info().rss
         try:
-            success = processor.initialise(hrtf_file=hrtf_file, hrtf_path=hrtf_path)
+            # run py3dti in a real OS thread via _hrtf_pool so the gevent event loop
+            # stays responsive while the HRTF file is loading (py3dti holds the GIL)
+            success = _hrtf_pool.apply(
+                processor.initialise,
+                kwds={'hrtf_file': hrtf_file, 'hrtf_path': hrtf_path},
+            )
         except BaseException as e:
             logging.error(f"session {session_id}: _init_worker crashed: {e}")
             success = False
@@ -432,7 +459,7 @@ def handle_create_source(data):
         return
 
     if processor:
-        success = processor.create_source(source_id, position)
+        success = _setup_pool.apply(processor.create_source, (source_id, position))
         if success:
             performance_monitor.increment_source_count(session_id)
         
@@ -460,12 +487,15 @@ def handle_update_position(data):
         return
 
     if processor:
-        success = processor.update_source_position(source_id, position)
-        emit('status', {
+        success = _setup_pool.apply(processor.update_source_position, (source_id, position))
+        resp = {
             'code': 'POSITION_UPDATED' if success else 'UPDATE_FAILED',
             'source_id': source_id,
             'server_ts': int(time.time() * 1000),
-        })
+        }
+        if '_seq' in data:
+            resp['_seq'] = data['_seq']
+        emit('status', resp)
 
 
 @socketio.on('update_listener')
@@ -623,7 +653,7 @@ def handle_stream_audio(data):
         })
         return
     
-    result = processor.process_audio(source_id, audio_buffer)
+    result = _setup_pool.apply(processor.process_audio, (source_id, audio_buffer))
     if result is None:
         performance_monitor.increment_errors()
         if session:
@@ -712,7 +742,7 @@ def handle_request_test_tone(data):
             end = start + buffer_size
             chunk = test_audio[start:end]
 
-            result = processor.process_audio(source_id, chunk)
+            result = _setup_pool.apply(processor.process_audio, (source_id, chunk))
 
             if result:
                 left_channel, right_channel = result
@@ -794,10 +824,12 @@ def handle_get_data():
         emit('error', {'message': f'File rendering failed: {str(e)}'})
 
 def _stop_file_stream(session_id: str):
-    """signal the background stream task for session_id to stop."""
-    stop_event = file_stream_stop.get(session_id)
-    if stop_event:
-        stop_event.set()
+    """remove session from global render loop without emitting STREAM_COMPLETE."""
+    with _g_lock:
+        _g_stream_active.discard(session_id)
+    _g_stream_states.pop(session_id, None)
+    _g_stream_locks.pop(session_id, None)
+    _g_stream_paused.pop(session_id, None)
 
 
 @socketio.on('stream_uploaded_file')
@@ -843,21 +875,18 @@ def handle_stream_uploaded_file(data):
             emit('error', {'message': 'Failed to decode audio file'})
             return
 
-        if session_id not in file_stream_locks:
-            file_stream_locks[session_id] = threading.Lock()
-        lock = file_stream_locks[session_id]
+        if session_id not in _g_stream_locks:
+            _g_stream_locks[session_id] = threading.Lock()
 
-        with lock:
-            if session_id not in file_stream_state:
-                file_stream_state[session_id] = {}
-            file_stream_state[session_id][source_id] = {'buffers': buffers, 'pos': 0}
+        with _g_stream_locks[session_id]:
+            if session_id not in _g_stream_states:
+                _g_stream_states[session_id] = {}
+            _g_stream_states[session_id][source_id] = {'buffers': buffers, 'pos': 0}
 
-        if session_id not in file_stream_stop or file_stream_stop[session_id].is_set():
-            stop_event = threading.Event()
-            file_stream_stop[session_id] = stop_event
-            t = threading.Thread(target=_stream_task, args=(session_id, stop_event), daemon=True)
-            t.start()
-        logging.info(f"[stream] handler total before emit: {(time.time()-t0)*1000:.1f}ms")
+        with _g_lock:
+            _g_stream_active.add(session_id)
+
+        logging.info(f"[stream] registered in global loop: {(time.time()-t0)*1000:.1f}ms")
 
         emit('status', {
             'code': 'FILE_STREAM_STARTED',
@@ -872,87 +901,110 @@ def handle_stream_uploaded_file(data):
         emit('error', {'message': f'File streaming failed: {str(e)}'})
 
 
-def _stream_task(session_id: str, stop_event: threading.Event):
-    """streams decoded audio buffers at real-time pace until all tracks finish or stopped."""
-    buffer_duration = config.BUFFER_SIZE / config.SAMPLE_RATE
+def _do_render_session(session_id: str, buffers_map: dict):
+    """render one tick for session_id; called from _render_pool threads."""
+    processor = audio_processors.get(session_id)
+    if not processor or not processor.is_initialised:
+        return session_id, None, None
+    result = processor.process_sources(buffers_map)
+    if result is None:
+        return session_id, None, None
+    return session_id, result[0], result[1]
 
+
+def _global_render_loop():
+    """gevent greenlet: drives all active sessions at real-time pace."""
+    buffer_duration = config.BUFFER_SIZE / config.SAMPLE_RATE
     t_start = time.time()
     tick = 0
 
-    while not stop_event.is_set():
-        lock = file_stream_locks.get(session_id)
-        state = file_stream_state.get(session_id)
-        if not lock or not state:
-            time.sleep(0.01)
-            continue
-
-        with lock:
-            if not state:
-                # all tracks finished - exit naturally
-                break
-            buffers_map = {}
-            source_positions = {}
-            finished = []
-            paused_srcs = file_stream_paused.get(session_id, set())
-            for src_id, src in state.items():
-                if src_id in paused_srcs:
-                    continue
-                pos = src['pos']
-                total = len(src['buffers'])
-                if pos >= total:
-                    finished.append(src_id)
-                    continue
-                buffers_map[src_id] = src['buffers'][pos]
-                src['pos'] = pos + 1
-                source_positions[src_id] = {'current': pos, 'total': total}
-            for src_id in finished:
-                del state[src_id]
-
-        for src_id in finished:
-            socketio.emit('status', {
-                'code': 'TRACK_COMPLETE',
-                'source_id': src_id,
-                'server_ts': int(time.time() * 1000),
-            }, to=session_id, namespace='/')
-
-        if not buffers_map:
-            with lock:
-                if not state:
-                    break
-            tick += 1
-            continue
-
-        processor = audio_processors.get(session_id)
-        if not processor or not processor.is_initialised:
-            return
-
-        t_render = time.time()
-        result = processor.process_sources(buffers_map)
-        if tick == 1:
-            logging.info(f"[stream_task] tick 1 render: {(time.time()-t_render)*1000:.1f}ms")
-        if result is not None:
-            left, right = result
-            socketio.emit('file_audio_chunk', {
-                'audio_data': encode_audio_to_base64(left, right),
-                'source_positions': source_positions,
-                'render_ts': int(time.time() * 1000),
-            }, room=session_id)
-
+    while True:
         tick += 1
+        try:
+            with _g_lock:
+                active_sessions = list(_g_stream_active)
+
+            futures_map = {}        # future → (session_id, source_positions)
+            completed_sessions = [] # sessions that finished all tracks this tick
+
+            for session_id in active_sessions:
+                lock  = _g_stream_locks.get(session_id)
+                state = _g_stream_states.get(session_id)
+                if lock is None or state is None:
+                    continue
+
+                buffers_map      = {}
+                source_positions = {}
+                track_finished   = []
+
+                with lock:
+                    paused = _g_stream_paused.get(session_id, set())
+                    for src_id, src in list(state.items()):
+                        if src_id in paused:
+                            continue
+                        pos   = src['pos']
+                        total = len(src['buffers'])
+                        if pos >= total:
+                            track_finished.append(src_id)
+                            continue
+                        buffers_map[src_id]      = src['buffers'][pos]
+                        src['pos']               = pos + 1
+                        source_positions[src_id] = {'current': pos, 'total': total}
+                    for src_id in track_finished:
+                        del state[src_id]
+                    session_done = len(state) == 0
+
+                for src_id in track_finished:
+                    socketio.emit('status', {
+                        'code': 'TRACK_COMPLETE',
+                        'source_id': src_id,
+                        'server_ts': int(time.time() * 1000),
+                    }, to=session_id, namespace='/')
+
+                if session_done:
+                    completed_sessions.append(session_id)
+                    continue
+
+                if not buffers_map:
+                    continue  # all sources paused
+
+                ar = _render_pool.apply_async(_do_render_session, (session_id, buffers_map))
+                futures_map[ar] = (session_id, source_positions)
+
+            # collect results — .get() suspends this greenlet (not the event loop) while py3dti runs
+            for ar, (session_id, source_positions) in futures_map.items():
+                try:
+                    r_sid, left, right = ar.get()
+                    if left is not None:
+                        socketio.emit('file_audio_chunk', {
+                            'audio_data': encode_audio_to_base64(left, right),
+                            'source_positions': source_positions,
+                            'render_ts': int(time.time() * 1000),
+                        }, to=r_sid, namespace='/')
+                except Exception as e:
+                    logging.error(f"render error for {session_id}: {e}")
+
+            # emit STREAM_COMPLETE and clean up sessions that finished naturally
+            for session_id in completed_sessions:
+                with _g_lock:
+                    _g_stream_active.discard(session_id)
+                _g_stream_states.pop(session_id, None)
+                _g_stream_locks.pop(session_id, None)
+                _g_stream_paused.pop(session_id, None)
+                socketio.emit('status', {
+                    'code': 'STREAM_COMPLETE',
+                    'server_ts': int(time.time() * 1000),
+                }, to=session_id, namespace='/')
+
+        except Exception as e:
+            logging.error(f"render loop tick {tick} error: {e}", exc_info=True)
+
         t_next = t_start + tick * buffer_duration
         sleep_time = t_next - time.time()
         if sleep_time > 0:
             time.sleep(sleep_time)
         elif sleep_time < -10 * buffer_duration:
             t_start = time.time() - tick * buffer_duration
-
-    if not stop_event.is_set():
-        socketio.emit('status', {'code': 'STREAM_COMPLETE', 'server_ts': int(time.time() * 1000)},
-                      to=session_id, namespace='/')
-    file_stream_stop.pop(session_id, None)
-    file_stream_paused.pop(session_id, None)
-
-    logging.info(f"[stream_task] Stopped: {session_id}")
 
 
 @socketio.on('stop_file_stream')
@@ -967,9 +1019,7 @@ def handle_pause_stream(data=None):
     session_id = request.sid
     src_id = (data or {}).get('source_id')
     if src_id:
-        if session_id not in file_stream_paused:
-            file_stream_paused[session_id] = set()
-        file_stream_paused[session_id].add(src_id)
+        _g_stream_paused.setdefault(session_id, set()).add(src_id)
     emit('status', {'code': 'STREAM_PAUSED', 'source_id': src_id, 'server_ts': int(time.time() * 1000)})
 
 
@@ -977,8 +1027,8 @@ def handle_pause_stream(data=None):
 def handle_resume_stream(data=None):
     session_id = request.sid
     src_id = (data or {}).get('source_id')
-    if src_id and session_id in file_stream_paused:
-        file_stream_paused[session_id].discard(src_id)
+    if src_id and session_id in _g_stream_paused:
+        _g_stream_paused[session_id].discard(src_id)
     emit('status', {'code': 'STREAM_RESUMED', 'source_id': src_id, 'server_ts': int(time.time() * 1000)})
 
 
@@ -988,13 +1038,12 @@ def handle_stop_source_stream(data=None):
     src_id = (data or {}).get('source_id')
     if not src_id:
         return
-    lock = file_stream_locks.get(session_id)
+    lock = _g_stream_locks.get(session_id)
     if lock:
         with lock:
-            state = file_stream_state.get(session_id, {})
-            state.pop(src_id, None)
-    if session_id in file_stream_paused:
-        file_stream_paused[session_id].discard(src_id)
+            _g_stream_states.get(session_id, {}).pop(src_id, None)
+    if session_id in _g_stream_paused:
+        _g_stream_paused[session_id].discard(src_id)
     emit('status', {'code': 'SOURCE_STOPPED', 'source_id': src_id, 'server_ts': int(time.time() * 1000)})
 
 
@@ -1045,11 +1094,14 @@ def handle_list_uploaded_files():
         logging.error(f"List files error: {e}")
         emit('error', {'message': f'Failed to list files: {str(e)}'})
 
+_render_loop_thread = threading.Thread(target=_global_render_loop, daemon=True, name='global-render-loop')
+_render_loop_thread.start()
+
 if __name__ == '__main__':
     print(f"Starting WebSocket server...")
     socketio.run(
         app,
         host=config.HOST,
         port=config.PORT,
-        debug=config.DEBUG
+        debug=config.DEBUG,
     )

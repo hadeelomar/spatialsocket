@@ -10,10 +10,10 @@ import os
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'app'))
 
-from session_manager import SessionManager, Session, StreamState
-from source_manager import SourceManager
-from audio_processor import AudioProcessor
-from performance_monitor import PerformanceMonitor
+from app.session_manager import SessionManager, Session, StreamState
+from app.source_manager import SourceManager
+from app.audio_processor import AudioProcessor
+from app.performance_monitor import PerformanceMonitor
 
 
 class TestWebSocketWorkflow(unittest.TestCase):

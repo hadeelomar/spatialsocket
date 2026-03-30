@@ -114,7 +114,11 @@ class AudioProcessor:
             if hrtf_path:
                 resolved_path = hrtf_path
             elif hrtf_file:
-                resolved_path = os.path.join('hrtf_datasets', hrtf_file)
+                _datasets_dir = os.environ.get(
+                    'HRTF_DATASETS_DIR',
+                    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'hrtf_datasets')
+                )
+                resolved_path = os.path.join(_datasets_dir, hrtf_file)
             else:
                 print("no hrtf specified - using placeholder mode")
                 self.placeholder_mode = True
