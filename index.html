@@ -848,21 +848,31 @@ footer{
   background:var(--surface);border-radius:6px;margin-bottom:16px;
   border:1px solid var(--border);min-height:32px;display:flex;align-items:center;gap:8px;
 }
+.bench-prog-track{flex:1;height:3px;background:var(--border2);border-radius:2px;overflow:hidden;min-width:60px;max-width:160px}
+.bench-prog-fill{height:100%;background:var(--primary);border-radius:2px;transition:width .15s ease}
+.bench-prog-pct{font-size:11px;color:var(--text3);font-family:'JetBrains Mono',monospace;min-width:28px;text-align:right}
 .bench-spinner{
   width:12px;height:12px;border-radius:50%;flex-shrink:0;
   border:2px solid var(--border2);border-top-color:var(--primary);
   animation:bench-spin .7s linear infinite;
 }
 @keyframes bench-spin{to{transform:rotate(360deg)}}
-.bench-cards{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+.bench-cards{display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:110px;gap:12px;margin-bottom:20px}
 .bench-card{
-  flex:1;min-width:130px;padding:14px 16px;
-  border-radius:10px;background:var(--bg);border:1px solid var(--border);
+  padding:18px 20px;
+  border-radius:14px;background:var(--bg);border:1px solid var(--border);
+  box-shadow:0 0 0 1px rgba(0,0,0,0.03),0 2px 8px rgba(0,0,0,0.04);
+  display:flex;flex-direction:column;justify-content:space-between;
+  transition:box-shadow .25s,transform .25s;
+  overflow:hidden;position:relative;
 }
-.bench-card-label{font-size:11px;color:var(--text3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:6px}
-.bench-card-val{font-size:22px;font-weight:500;letter-spacing:-.03em;color:var(--text);font-family:'JetBrains Mono',monospace}
-.bench-card-unit{font-size:12px;color:var(--text2);margin-left:3px}
-.bench-card-sub{font-size:11px;color:var(--text3);margin-top:2px}
+.bench-card:hover{box-shadow:0 0 0 1px rgba(0,0,0,0.07),0 8px 24px rgba(0,0,0,0.08);transform:translateY(-2px)}
+.bench-card.span2{grid-column:span 2}
+.bench-card.span2 .bench-card-val{font-size:34px}
+.bench-card-label{font-size:11px;color:var(--text3);letter-spacing:.05em;text-transform:uppercase;font-weight:500}
+.bench-card-val{font-size:26px;font-weight:500;letter-spacing:-.03em;color:var(--text);font-family:'JetBrains Mono',monospace;line-height:1}
+.bench-card-unit{font-size:13px;color:var(--text2);margin-left:3px}
+.bench-card-sub{font-size:11px;color:var(--text3);margin-top:0}
 .bench-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .bench-tbl th{
   text-align:left;padding:8px 12px;
@@ -881,12 +891,13 @@ footer{
 .bench-badge.http{background:rgba(124,58,237,.1);color:#7c3aed}
 .bench-badge.tie{background:var(--surface);color:var(--text3)}
 @media(max-width:900px){.bench-config{flex-direction:column}}
-@media(max-width:640px){.bench-cards{flex-direction:column}}
+@media(max-width:900px){.bench-cards{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:640px){.bench-cards{grid-template-columns:1fr}.bench-card.span2{grid-column:auto}}
 </style>
 </head>
 <body>
 
-<!-- ═══ NAVBAR ═══════════════════════════════════════════ -->
+<!-- navbar -->
 <nav id="navbar">
   <a href="#hero" class="nav-brand">SpatialSocket</a>
   <ul class="nav-links">
@@ -899,14 +910,14 @@ footer{
   <a href="#playground" class="nav-cta">Get Started →</a>
 </nav>
 
-<!-- ═══ HERO ══════════════════════════════════════════════ -->
+<!-- hero -->
 <section id="hero">
   <div class="hero-blob hero-blob-blue" id="hero-blob-blue"></div>
   <div class="hero-blob hero-blob-violet" id="hero-blob-violet"></div>
   <div class="container">
     <div class="hero-inner">
 
-      <!-- Left earbud -->
+      <!-- left earbud -->
       <div class="hero-earbud-col left">
         <div class="earbud-wrap left">
           <div class="earbud-img-outer">
@@ -921,7 +932,7 @@ footer{
         </div>
       </div>
 
-      <!-- Center text -->
+      <!-- center text -->
       <div class="hero-center fade-in">
         <div class="hero-badge">
           <span class="hero-badge-dot"></span>
@@ -941,7 +952,7 @@ footer{
         </div>
       </div>
 
-      <!-- Right earbud -->
+      <!-- right earbud -->
       <div class="hero-earbud-col right">
         <div class="earbud-wrap right">
           <div class="earbud-img-outer">
@@ -958,7 +969,7 @@ footer{
 
     </div>
   </div>
-  <!-- Scroll indicator -->
+  <!-- scroll indicator -->
   <div class="scroll-indicator">
     <span class="scroll-chevron">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
@@ -966,7 +977,7 @@ footer{
   </div>
 </section>
 
-<!-- ═══ FEATURES ══════════════════════════════════════════ -->
+<!-- features -->
 <section id="overview">
   <div class="container">
     <div class="fade-in">
@@ -976,7 +987,7 @@ footer{
     </div>
     <div class="bento-grid fade-in" style="transition-delay:.1s">
 
-      <!-- A: tall center -->
+      <!-- a: tall center -->
       <div class="bento-card bento-A">
         <div class="bento-deco"><div class="deco-diagonal"></div></div>
         <div class="bento-content">
@@ -991,7 +1002,7 @@ footer{
         <div class="bento-cta">Learn more →</div>
       </div>
 
-      <!-- B: top left -->
+      <!-- b: top left -->
       <div class="bento-card bento-B">
         <div class="bento-deco"><div class="deco-dots"></div></div>
         <div class="bento-content">
@@ -1006,7 +1017,7 @@ footer{
         <div class="bento-cta">Learn more →</div>
       </div>
 
-      <!-- C: bottom left -->
+      <!-- c: bottom left -->
       <div class="bento-card bento-C">
         <div class="bento-deco"><div class="deco-circles"><div class="deco-circles-inner"><div class="deco-circle" style="width:40px;height:40px"></div><div class="deco-circle" style="width:70px;height:70px"></div><div class="deco-circle" style="width:100px;height:100px"></div></div></div></div>
         <div class="bento-content">
@@ -1021,7 +1032,7 @@ footer{
         <div class="bento-cta">Learn more →</div>
       </div>
 
-      <!-- D: top right -->
+      <!-- d: top right -->
       <div class="bento-card bento-D">
         <div class="bento-deco"><div class="deco-waves"></div></div>
         <div class="bento-content">
@@ -1036,7 +1047,7 @@ footer{
         <div class="bento-cta">Learn more →</div>
       </div>
 
-      <!-- E: bottom right -->
+      <!-- e: bottom right -->
       <div class="bento-card bento-E">
         <div class="bento-deco"><div class="deco-grid-sq"></div></div>
         <div class="bento-content">
@@ -1055,7 +1066,7 @@ footer{
   </div>
 </section>
 
-<!-- ═══ USE CASES ═════════════════════════════════════════ -->
+<!-- use cases -->
 <section id="use-cases">
   <div class="container">
     <div class="fade-in">
@@ -1124,7 +1135,7 @@ footer{
   </div>
 </section>
 
-<!-- ═══ API DOCS ═══════════════════════════════════════════ -->
+<!-- api docs -->
 <section id="api">
   <div class="container">
     <div class="api-header fade-in">
@@ -1140,7 +1151,7 @@ footer{
         <button class="api-tab" onclick="showApiTab('codes',this)">Status Codes</button>
       </div>
 
-      <!-- Events tab -->
+      <!-- events tab -->
       <div class="api-tab-panel active" id="api-events">
 
         <div class="api-section-label">Client → Server</div>
@@ -1392,7 +1403,7 @@ socket.<span class="fn">on</span>(<span class="str">'file_audio_chunk'</span>, (
   </div>
 </section>
 
-<!-- ═══ PLAYGROUND ════════════════════════════════════════ -->
+<!-- playground -->
 <section id="playground">
   <div class="container">
     <div class="pg-header fade-in">
@@ -1401,7 +1412,7 @@ socket.<span class="fn">on</span>(<span class="str">'file_audio_chunk'</span>, (
       <p class="section-sub" style="margin:0 auto">Connect to your SpatialSocket server, add sources, upload audio and hear binaural output in your browser.</p>
     </div>
 
-    <!-- Connection bar -->
+    <!-- connection bar -->
     <div class="conn-bar fade-in" style="transition-delay:.1s">
       <div class="conn-dot" id="pg-dot"></div>
       <input type="text" id="pg-url" value="http://localhost:5000" placeholder="http://your-server:5000">
@@ -1411,13 +1422,13 @@ socket.<span class="fn">on</span>(<span class="str">'file_audio_chunk'</span>, (
       <span id="pg-sid-pill"></span>
     </div>
 
-    <!-- Main 3-col layout -->
+    <!-- main 3-col layout -->
     <div class="pg-layout fade-in" style="transition-delay:.15s">
 
-      <!-- LEFT: controls -->
+      <!-- left: controls -->
       <div class="pg-left-col">
 
-        <!-- Audio engine card -->
+        <!-- audio engine card -->
         <div class="pg-card" id="pg-engine-card">
           <div class="pg-card-title">
             <span class="step-dot" id="step-dot-1">1</span>
@@ -1437,7 +1448,7 @@ socket.<span class="fn">on</span>(<span class="str">'file_audio_chunk'</span>, (
           <div class="pg-status-text" id="pg-hrtf-status"></div>
         </div>
 
-        <!-- Sources card -->
+        <!-- sources card -->
         <div class="pg-card" id="pg-sources-card">
           <div class="pg-card-title">
             <span class="step-dot" id="step-dot-2">2</span>
@@ -1466,7 +1477,7 @@ socket.<span class="fn">on</span>(<span class="str">'file_audio_chunk'</span>, (
 
       </div>
 
-      <!-- CENTER: 3D canvas -->
+      <!-- center: 3d canvas -->
       <div class="pg-center-col">
         <div class="scene-outer">
           <canvas id="pg-canvas"></canvas>
@@ -1475,10 +1486,10 @@ socket.<span class="fn">on</span>(<span class="str">'file_audio_chunk'</span>, (
         </div>
       </div>
 
-      <!-- RIGHT: stream + log -->
+      <!-- right: stream + log -->
       <div class="pg-right-col">
 
-        <!-- Mix output card -->
+        <!-- mix output card -->
         <div class="pg-card stream-card">
           <div class="pg-card-title">
             <span class="step-dot" id="step-dot-3">3</span>
@@ -1489,7 +1500,7 @@ socket.<span class="fn">on</span>(<span class="str">'file_audio_chunk'</span>, (
           <button class="pg-btn-full danger" id="pg-btn-stop" onclick="pgStop()" style="margin-top:8px;display:none">Stop All</button>
         </div>
 
-        <!-- Activity log card -->
+        <!-- activity log card -->
         <div class="pg-card">
           <div class="log-hdr-row">
             <div class="pg-card-title" style="margin-bottom:0">Activity Log</div>
@@ -1503,7 +1514,7 @@ socket.<span class="fn">on</span>(<span class="str">'file_audio_chunk'</span>, (
   </div>
 </section>
 
-<!-- ═══ PERFORMANCE ══════════════════════════════════════ -->
+<!-- performance -->
 <section id="performance">
   <div class="container">
     <div class="fade-in">
@@ -1580,7 +1591,7 @@ socket.<span class="fn">on</span>(<span class="str">'file_audio_chunk'</span>, (
   </div>
 </section>
 
-<!-- ═══ FOOTER ════════════════════════════════════════════ -->
+<!-- footer -->
 <footer>
   <div class="container">
     <div class="footer-inner">
@@ -2607,15 +2618,17 @@ const bSD  = a => { if(a.length<2) return NaN; const m=bMean(a); return Math.sqr
 const bFmt = (v,u='ms',d=1) => !Number.isFinite(v)?'-':`${v.toFixed(d)} ${u}`;
 const bJitter = r => bSD(r.chunkIntervals||[]);
 
-function runWSSingleSession(wsUrl, audioBlob, nChunks){
+function runWSSingleSession(wsUrl, audioBlob, nChunks, onProgress){
+  const pg=(step,pct)=>{ if(onProgress) onProgress(step,pct); };
   return new Promise(resolve=>{
     const r={transport:'WebSocket',connect_ms:0,init_ms:0,upload_ms:0,rtt_ms:0,
               first_chunk_ms:0,chunks:0,bytes:0,chunkIntervals:[],
               network_latency_ms:[],memory_delta_mb:NaN,pos_rtt_ms:NaN,
               error:null};
     let sid=null, savedFilename=null, initT=0, rttT=0, streamT=0, lastT=0, done=false;
-    let posRtts=[], posPending={}, posSeq=0;
+    let posRtts=[], posQueue=[], posInFlight=null, posSeq=0;
 
+    pg('Connecting…', 0);
     const finish=()=>{ if(done)return; done=true;
       if(posRtts.length) r.pos_rtt_ms=posRtts.reduce((s,v)=>s+v,0)/posRtts.length;
       try{sock.disconnect();}catch(e){} resolve(r); };
@@ -2628,6 +2641,7 @@ function runWSSingleSession(wsUrl, audioBlob, nChunks){
     sock.on('connected', d=>{
       sid=d.session_id||sock.id;
       r.connect_ms=performance.now()-t0;
+      pg('Loading HRTF…', 10);
       initT=performance.now();
       sock.emit('init_audio',{});
     });
@@ -2637,6 +2651,7 @@ function runWSSingleSession(wsUrl, audioBlob, nChunks){
       if(d.code==='AUDIO_INITIALISED'){
         r.init_ms=performance.now()-initT;
         if(Number.isFinite(d.memory_delta_mb)) r.memory_delta_mb=d.memory_delta_mb;
+        pg('Uploading audio…', 35);
         const upT=performance.now();
         const fd=new FormData(); fd.append('audio_file',audioBlob,'bench.wav');
         try{
@@ -2645,29 +2660,36 @@ function runWSSingleSession(wsUrl, audioBlob, nChunks){
           const dat=await resp.json();
           r.upload_ms=performance.now()-upT;
           savedFilename=dat.saved_filename;
+          pg('Creating source…', 50);
           rttT=performance.now();
           sock.emit('create_source',{source_id:'bench_src',position:{x:1,y:0,z:0}});
         }catch(e){ r.error='upload: '+e.message; finish(); }
       }
       if(d.code==='SOURCE_CREATED'){
         r.rtt_ms=performance.now()-rttT;
-        const posAngles=Array.from({length:10},(_,i)=>i*36*Math.PI/180);
-        for(const angle of posAngles){
+        posQueue=Array.from({length:10},(_,i)=>i*36*Math.PI/180);
+        const nPos=posQueue.length;
+        const sendNextPos=()=>{
+          if(posQueue.length===0){
+            pg('Streaming…', 70);
+            streamT=performance.now();
+            sock.emit('stream_uploaded_file',{source_id:'bench_src',filename:savedFilename});
+            return;
+          }
+          const done_pos=nPos-posQueue.length;
+          pg(`Positions ${done_pos}/${nPos}`, 55+done_pos/nPos*15);
+          const angle=posQueue.shift();
           const seq=++posSeq;
-          posPending[seq]=performance.now();
+          posInFlight={seq,t:performance.now()};
           sock.emit('update_position',{source_id:'bench_src',
             position:{x:Math.cos(angle),y:0,z:Math.sin(angle)},_seq:seq});
-        }
-        streamT=performance.now();
-        sock.emit('stream_uploaded_file',{source_id:'bench_src',filename:savedFilename});
+        };
+        sendNextPos();
+        sock._sendNextPos=sendNextPos;
       }
       if(d.code==='POSITION_UPDATED'){
-        const seq=d._seq;
-        if(seq && posPending[seq]){ posRtts.push(performance.now()-posPending[seq]); delete posPending[seq]; }
-        else { // fallback: use the oldest pending
-          const keys=Object.keys(posPending);
-          if(keys.length){ const k=keys[0]; posRtts.push(performance.now()-posPending[k]); delete posPending[k]; }
-        }
+        if(posInFlight){ posRtts.push(performance.now()-posInFlight.t); posInFlight=null; }
+        if(sock._sendNextPos) sock._sendNextPos();
       }
     });
 
@@ -2680,6 +2702,7 @@ function runWSSingleSession(wsUrl, audioBlob, nChunks){
       if(d.render_ts){ const net=Date.now()-d.render_ts; if(net>=0&&net<5000) r.network_latency_ms.push(net); }
       lastT=now; r.chunks++;
       r.bytes+=Math.round((d.audio_data?.length||0)*0.75);
+      pg(`Chunks ${r.chunks}/${nChunks}`, 70+r.chunks/nChunks*30);
       if(r.chunks>=nChunks) finish();
     });
 
@@ -2688,13 +2711,15 @@ function runWSSingleSession(wsUrl, audioBlob, nChunks){
   });
 }
 
-async function runHTTPSingleSession(httpUrl, audioBlob, nChunks){
+async function runHTTPSingleSession(httpUrl, audioBlob, nChunks, onProgress){
+  const pg=(step,pct)=>{ if(onProgress) onProgress(step,pct); };
   const r={transport:'HTTP+SSE',connect_ms:0,init_ms:0,upload_ms:0,rtt_ms:0,
             first_chunk_ms:0,chunks:0,bytes:0,chunkIntervals:[],
             network_latency_ms:[],memory_delta_mb:NaN,pos_rtt_ms:NaN,
             error:null};
   const t0=performance.now();
   let sid;
+  pg('Creating session…', 0);
   try{
     const resp=await fetch(`${httpUrl}/api/session`,{method:'POST'});
     if(!resp.ok) throw new Error('HTTP '+resp.status);
@@ -2718,6 +2743,7 @@ async function runHTTPSingleSession(httpUrl, audioBlob, nChunks){
   await new Promise(res=>setTimeout(res,80)); // let SSE connect
 
   try{
+    pg('Loading HRTF…', 10);
     const initT=performance.now();
     const ir=await fetch(`${httpUrl}/api/${sid}/init`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
     if(!ir.ok) throw new Error('init '+ir.status);
@@ -2725,6 +2751,7 @@ async function runHTTPSingleSession(httpUrl, audioBlob, nChunks){
     r.init_ms=performance.now()-initT;
     if(Number.isFinite(initD?.memory_delta_mb)) r.memory_delta_mb=initD.memory_delta_mb;
 
+    pg('Uploading audio…', 35);
     const upT=performance.now();
     const fd=new FormData(); fd.append('file',audioBlob,'bench.wav');
     const ur=await fetch(`${httpUrl}/api/${sid}/sources/bench_src/upload`,{method:'POST',body:fd});
@@ -2733,6 +2760,7 @@ async function runHTTPSingleSession(httpUrl, audioBlob, nChunks){
     r.upload_ms=performance.now()-upT;
     const savedFilename=udat.saved_filename;
 
+    pg('Creating source…', 50);
     const rttT=performance.now();
     const cr=await fetch(`${httpUrl}/api/${sid}/sources`,{method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -2742,22 +2770,26 @@ async function runHTTPSingleSession(httpUrl, audioBlob, nChunks){
 
     {
       const posAngles=Array.from({length:10},(_,i)=>i*36*Math.PI/180);
-      const posRtts=await Promise.all(posAngles.map(async angle=>{
+      const posRtts=[];
+      for(let i=0;i<posAngles.length;i++){
+        pg(`Positions ${i+1}/${posAngles.length}`, 55+(i+1)/posAngles.length*15);
         const t=performance.now();
         await fetch(`${httpUrl}/api/${sid}/sources/bench_src/position`,{method:'PATCH',
           headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({position:{x:Math.cos(angle),y:0,z:Math.sin(angle)}})});
-        return performance.now()-t;
-      }));
+          body:JSON.stringify({position:{x:Math.cos(posAngles[i]),y:0,z:Math.sin(posAngles[i])}})});
+        posRtts.push(performance.now()-t);
+      }
       r.pos_rtt_ms=posRtts.reduce((s,v)=>s+v,0)/posRtts.length;
     }
 
+    pg('Streaming…', 70);
+    const streamReady=waitFor('STREAM_READY',30000);
     const streamT=performance.now();
     const sr=await fetch(`${httpUrl}/api/${sid}/sources/bench_src/stream`,{method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({filename:savedFilename})});
     if(!sr.ok) throw new Error('stream '+sr.status);
-    await waitFor('STREAM_READY',30000);
+    await streamReady;
 
     let lastT=0;
     await new Promise((res,rej)=>{
@@ -2770,6 +2802,7 @@ async function runHTTPSingleSession(httpUrl, audioBlob, nChunks){
         if(d.render_ts){ const net=Date.now()-d.render_ts; if(net>=0&&net<5000) r.network_latency_ms.push(net); }
         lastT=now; r.chunks++;
         r.bytes+=Math.round((d.audio_data?.length||0)*0.75);
+        pg(`Chunks ${r.chunks}/${nChunks}`, 70+r.chunks/nChunks*30);
         if(r.chunks>=nChunks) res();
       };
     });
@@ -2783,11 +2816,13 @@ async function runHTTPSingleSession(httpUrl, audioBlob, nChunks){
 function renderBenchCards(results, el){
   const ok=bOk(results);
   if(!ok.length){ el.innerHTML=''; return; }
-  const card=(label,v,unit,sub)=>`
-    <div class="bench-card">
+  const card=(label,v,unit,sub,cls='')=>`
+    <div class="bench-card${cls?' '+cls:''}">
       <div class="bench-card-label">${label}</div>
-      <div class="bench-card-val">${Number.isFinite(v)?v.toFixed(1):'-'}<span class="bench-card-unit">${unit}</span></div>
-      ${sub?`<div class="bench-card-sub">${sub}</div>`:''}
+      <div>
+        <div class="bench-card-val">${Number.isFinite(v)?v.toFixed(1):'-'}<span class="bench-card-unit">${unit}</span></div>
+        ${sub?`<div class="bench-card-sub">${sub}</div>`:''}
+      </div>
     </div>`;
   const rttV=bGet(results,'rtt_ms'), fcV=bGet(results,'first_chunk_ms');
   const jV=ok.map(r=>bJitter(r)).filter(Number.isFinite);
@@ -2796,12 +2831,12 @@ function renderBenchCards(results, el){
   const memV=ok.map(r=>r.memory_delta_mb).filter(Number.isFinite);
   const posV=ok.map(r=>r.pos_rtt_ms).filter(Number.isFinite);
   el.innerHTML=`<div class="bench-cards">
-    ${card('Transport RTT',bMean(rttV),'ms',`p95 ${bFmt(bP95(rttV))}`)}
+    ${card('Transport RTT',bMean(rttV),'ms',`p95 ${bFmt(bP95(rttV))}`,'span2')}
     ${card('Pipeline Latency',bMean(fcV),'ms',`p95 ${bFmt(bP95(fcV))}`)}
     ${card('Network Latency',bMean(netV),'ms','one-way (clock approx)')}
     ${card('Chunk Jitter σ',bMean(jV),'ms',`${ok.length}/${results.length} ok`)}
+    ${card('Session Memory',bMean(memV),'MB','HRTF init delta','span2')}
     ${card('Pos Update RTT',bMean(posV),'ms','10 rapid updates')}
-    ${card('Session Memory',bMean(memV),'MB','HRTF init delta')}
     ${card('Data Received',bMean(bwV),'KB','avg/session')}
   </div>`;
 }
@@ -2921,6 +2956,14 @@ function benchSetButtons(disabled){
   });
 }
 
+function benchStatProgress(el, step, pct){
+  const bar = pct!=null
+    ? `<div class="bench-prog-track"><div class="bench-prog-fill" style="width:${pct}%"></div></div>`
+      +`<span class="bench-prog-pct">${Math.round(pct)}%</span>`
+    : '';
+  el.innerHTML=`<div class="bench-spinner"></div><span>${step}</span>${bar}`;
+}
+
 async function benchRunWS(){
   if(benchRunning) return;
   benchRunning=true; benchSetButtons(true);
@@ -2930,16 +2973,15 @@ async function benchRunWS(){
   const chunks=Math.max(5,parseInt(document.getElementById('bench-chunks').value)||20);
   const audio=getBenchAudio();
   const statEl=document.getElementById('bstat-ws');
-  statEl.innerHTML='<div class="bench-spinner"></div> Running '+n+' session(s)…';
+  let done=0, curStep='Starting…', curPct=0;
+  const updateWS=()=>benchStatProgress(statEl, n>1?`${done}/${n} sessions · ${curStep}`:curStep, curPct);
+  const pg=(step,pct)=>{ curStep=step; curPct=pct; updateWS(); };
   try{
-    let done=0;
     benchWSResults=await Promise.all(
-      Array.from({length:n},()=>runWSSingleSession(wsUrl,audio,chunks).then(r=>{
-        statEl.innerHTML='<div class="bench-spinner"></div> '+(++done)+'/'+n+' complete…'; return r;
-      }))
+      Array.from({length:n},()=>runWSSingleSession(wsUrl,audio,chunks,pg).then(r=>{ done++; updateWS(); return r; }))
     );
     const ok=bOk(benchWSResults).length;
-    statEl.innerHTML=`✓ ${ok}/${n} sessions succeeded`;
+    statEl.innerHTML=`✓ ${ok}/${n} session${n>1?'s':''} succeeded`;
     renderBenchCards(benchWSResults,document.getElementById('bcards-ws'));
     renderBenchTable(benchWSResults,document.getElementById('btable-ws'));
     if(benchHTTPResults) renderBenchCompare(benchWSResults,benchHTTPResults,document.getElementById('bcmp-content'));
@@ -2956,16 +2998,20 @@ async function benchRunHTTP(){
   const chunks=Math.max(5,parseInt(document.getElementById('bench-chunks').value)||20);
   const audio=getBenchAudio();
   const statEl=document.getElementById('bstat-http');
-  statEl.innerHTML='<div class="bench-spinner"></div> Running '+n+' session(s)…';
+  let done=0, curStep='Starting…', curPct=0;
+  const updateHTTP=()=>benchStatProgress(statEl, n>1?`Session ${done+1}/${n} · ${curStep}`:curStep, curPct);
+  const pg=(step,pct)=>{ curStep=step; curPct=pct; updateHTTP(); };
   try{
-    let done=0;
-    benchHTTPResults=await Promise.all(
-      Array.from({length:n},()=>runHTTPSingleSession(httpUrl,audio,chunks).then(r=>{
-        statEl.innerHTML='<div class="bench-spinner"></div> '+(++done)+'/'+n+' complete…'; return r;
-      }))
-    );
+    // HTTP/1.1 browser connection limit (6 per origin) means parallel SSE sessions deadlock.
+    // Run sequentially so each session's SSE connection is fully closed before the next opens.
+    benchHTTPResults=[];
+    for(let i=0;i<n;i++){
+      const r=await runHTTPSingleSession(httpUrl,audio,chunks,pg);
+      benchHTTPResults.push(r);
+      done++;
+    }
     const ok=bOk(benchHTTPResults).length;
-    statEl.innerHTML=`✓ ${ok}/${n} sessions succeeded`;
+    statEl.innerHTML=`✓ ${ok}/${n} session${n>1?'s':''} succeeded`;
     renderBenchCards(benchHTTPResults,document.getElementById('bcards-http'));
     renderBenchTable(benchHTTPResults,document.getElementById('btable-http'));
     if(benchWSResults) renderBenchCompare(benchWSResults,benchHTTPResults,document.getElementById('bcmp-content'));
@@ -2985,14 +3031,22 @@ async function benchRunCompare(){
   const cmpStat=document.getElementById('bstat-cmp');
   const wsStat=document.getElementById('bstat-ws');
   const httpStat=document.getElementById('bstat-http');
-  cmpStat.innerHTML='<div class="bench-spinner"></div> Running WebSocket & HTTP+SSE in parallel…';
-  wsStat.innerHTML='<div class="bench-spinner"></div> Running…';
-  httpStat.innerHTML='<div class="bench-spinner"></div> Running…';
+  let wsDone=0, wsStep='Starting…', wsPct=0;
+  let hDone=0, hStep='Starting…', hPct=0;
+  const updWS=()=>benchStatProgress(wsStat, n>1?`Session ${wsDone+1}/${n} · ${wsStep}`:wsStep, wsPct);
+  const updH=()=>benchStatProgress(httpStat, n>1?`Session ${hDone+1}/${n} · ${hStep}`:hStep, hPct);
+  const pgWS=(step,pct)=>{ wsStep=step; wsPct=pct; updWS(); };
+  const pgHTTP=(step,pct)=>{ hStep=step; hPct=pct; updH(); };
+  benchStatProgress(cmpStat,`Running WS (parallel) + HTTP (sequential, ${n} session${n>1?'s':''})…`,null);
   try{
-    const [wsRes,httpRes]=await Promise.all([
-      Promise.all(Array.from({length:n},()=>runWSSingleSession(wsUrl,audio,chunks))),
-      Promise.all(Array.from({length:n},()=>runHTTPSingleSession(httpUrl,audio,chunks))),
+    // HTTP runs sequentially to avoid browser HTTP/1.1 connection limit (6 per origin).
+    // WS runs in parallel as WebSocket connections don't consume HTTP connection slots.
+    const httpResArr=[];
+    const [wsRes]=await Promise.all([
+      Promise.all(Array.from({length:n},()=>runWSSingleSession(wsUrl,audio,chunks,pgWS).then(r=>{ wsDone++; updWS(); return r; }))),
+      (async()=>{ for(let i=0;i<n;i++){ const r=await runHTTPSingleSession(httpUrl,audio,chunks,pgHTTP); httpResArr.push(r); hDone++; updH(); } })(),
     ]);
+    const httpRes=httpResArr;
     benchWSResults=wsRes; benchHTTPResults=httpRes;
     const wo=bOk(wsRes).length, ho=bOk(httpRes).length;
     wsStat.innerHTML=`✓ ${wo}/${n} ok`;

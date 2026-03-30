@@ -11,3 +11,6 @@ soundcard
 werkzeug
 psutil
 requests
+gevent
+gevent-websocket
+gunicorn

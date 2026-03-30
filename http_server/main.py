@@ -12,13 +12,14 @@ import queue
 import uuid
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from flask import Flask, Response, jsonify, request, stream_with_context
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
 import sys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 from app.config import config
 from app.audio_processor import AudioProcessor
@@ -43,11 +44,16 @@ _sessions:        dict = {}
 _processors:      dict = {}
 _source_managers: dict = {}
 _event_queues:    dict = {}
-_stream_states:   dict = {}
-_stream_locks:    dict = {}
-_stream_stops:    dict = {}
-_stream_paused:   dict = {}
-_buffer_cache:    dict = {}  # file_path -> pre-decoded buffers
+_g_stream_states: dict = {}   # {session_id: {source_id: {'buffers': list, 'pos': int}}}
+_g_stream_locks:  dict = {}
+_g_stream_active: set = set()
+_g_stream_paused: dict = {}
+_g_lock = threading.Lock()
+_buffer_cache:    dict = {}
+
+_cpu = os.cpu_count() or 4
+_render_pool = ThreadPoolExecutor(max_workers=max(4, _cpu), thread_name_prefix='http-render')
+_hrtf_init_sem = threading.Semaphore(max(2, _cpu // 2))
 
 def _push(sid: str, event: str, data: dict):
     """push event to session's sse queue."""
@@ -161,10 +167,11 @@ def init_audio(sid):
             if os.path.exists(candidate):
                 hrtf_path = candidate
 
-        ok = proc.initialise(
-            hrtf_file=hrtf_file if not hrtf_path else None,
-            hrtf_path=hrtf_path,
-        )
+        with _hrtf_init_sem:
+            ok = proc.initialise(
+                hrtf_file=hrtf_file if not hrtf_path else None,
+                hrtf_path=hrtf_path,
+            )
         rss_after = _p.memory_info().rss
         memory_delta_mb = round((rss_after - rss_before) / (1024 * 1024), 2)
 
@@ -354,12 +361,16 @@ def start_stream(sid, source_id):
                                    'message': 'Failed to decode audio'})
             return
 
-        if sid not in _stream_states:
-            _stream_states[sid] = {}
-            _stream_locks[sid]  = threading.Lock()
+        if sid not in _g_stream_locks:
+            _g_stream_locks[sid] = threading.Lock()
 
-        with _stream_locks[sid]:
-            _stream_states[sid][source_id] = {'buffers': buffers, 'pos': 0}
+        with _g_stream_locks[sid]:
+            if sid not in _g_stream_states:
+                _g_stream_states[sid] = {}
+            _g_stream_states[sid][source_id] = {'buffers': buffers, 'pos': 0}
+
+        with _g_lock:
+            _g_stream_active.add(sid)
 
         dur = len(buffers) * config.BUFFER_SIZE / config.SAMPLE_RATE
         _push(sid, 'status', {
@@ -370,11 +381,6 @@ def start_stream(sid, source_id):
             'server_ts':       int(time.time() * 1000),
         })
 
-        if sid not in _stream_stops:
-            stop_ev = threading.Event()
-            _stream_stops[sid] = stop_ev
-            threading.Thread(target=_stream_task, args=(sid, stop_ev), daemon=True).start()
-
     threading.Thread(target=_decode, daemon=True).start()
     return jsonify({'ok': True, 'message': 'Decoding…'})
 
@@ -383,7 +389,7 @@ def start_stream(sid, source_id):
 def pause_stream(sid, source_id):
     if sid not in _sessions:
         return jsonify({'error': 'Session not found'}), 404
-    _stream_paused.setdefault(sid, set()).add(source_id)
+    _g_stream_paused.setdefault(sid, set()).add(source_id)
     _push(sid, 'status', {'code': 'STREAM_PAUSED', 'source_id': source_id})
     return jsonify({'code': 'STREAM_PAUSED', 'source_id': source_id})
 
@@ -392,8 +398,8 @@ def pause_stream(sid, source_id):
 def resume_stream(sid, source_id):
     if sid not in _sessions:
         return jsonify({'error': 'Session not found'}), 404
-    if sid in _stream_paused:
-        _stream_paused[sid].discard(source_id)
+    if sid in _g_stream_paused:
+        _g_stream_paused[sid].discard(source_id)
     _push(sid, 'status', {'code': 'STREAM_RESUMED', 'source_id': source_id})
     return jsonify({'code': 'STREAM_RESUMED', 'source_id': source_id})
 
@@ -402,12 +408,12 @@ def resume_stream(sid, source_id):
 def stop_source(sid, source_id):
     if sid not in _sessions:
         return jsonify({'error': 'Session not found'}), 404
-    lock = _stream_locks.get(sid)
+    lock = _g_stream_locks.get(sid)
     if lock:
         with lock:
-            _stream_states.get(sid, {}).pop(source_id, None)
-    if sid in _stream_paused:
-        _stream_paused[sid].discard(source_id)
+            _g_stream_states.get(sid, {}).pop(source_id, None)
+    if sid in _g_stream_paused:
+        _g_stream_paused[sid].discard(source_id)
     _push(sid, 'status', {'code': 'SOURCE_STOPPED', 'source_id': source_id})
     return jsonify({'code': 'SOURCE_STOPPED', 'source_id': source_id})
 
@@ -422,74 +428,99 @@ def stop_all_streams(sid):
 
 
 def _stop_all(sid: str):
-    ev = _stream_stops.pop(sid, None)
-    if ev:
-        ev.set()
-    _stream_states.pop(sid, None)
-    _stream_locks.pop(sid, None)
-    _stream_paused.pop(sid, None)
+    with _g_lock:
+        _g_stream_active.discard(sid)
+    _g_stream_states.pop(sid, None)
+    _g_stream_locks.pop(sid, None)
+    _g_stream_paused.pop(sid, None)
 
 
-def _stream_task(sid: str, stop_event: threading.Event):
+def _do_render_session(sid: str, buffers_map: dict):
+    proc = _processors.get(sid)
+    if not proc or not proc.is_initialised:
+        return sid, None, None
+    result = proc.process_sources(buffers_map)
+    if result is None:
+        return sid, None, None
+    return sid, result[0], result[1]
+
+
+def _http_global_render_loop():
+    """single background thread that drives all active HTTP sessions at real-time pace."""
     buffer_duration = config.BUFFER_SIZE / config.SAMPLE_RATE
     t_start = time.time()
-    tick    = 0
+    tick = 0
 
-    while not stop_event.is_set():
-        lock  = _stream_locks.get(sid)
-        state = _stream_states.get(sid)
-        if lock is None or state is None:
-            time.sleep(0.01)
-            continue
+    while True:
+        tick += 1
 
-        with lock:
-            if not state:
-                break
+        with _g_lock:
+            active_sessions = list(_g_stream_active)
+
+        futures_map      = {}
+        completed_sessions = []
+
+        for sid in active_sessions:
+            lock  = _g_stream_locks.get(sid)
+            state = _g_stream_states.get(sid)
+            if lock is None or state is None:
+                continue
+
             buffers_map      = {}
             source_positions = {}
-            finished         = []
-            paused           = _stream_paused.get(sid, set())
+            track_finished   = []
 
-            for src_id, src in state.items():
-                if src_id in paused:
-                    continue
-                pos   = src['pos']
-                total = len(src['buffers'])
-                if pos >= total:
-                    finished.append(src_id)
-                    continue
-                buffers_map[src_id]      = src['buffers'][pos]
-                src['pos']               = pos + 1
-                source_positions[src_id] = {'current': pos, 'total': total}
-
-            for src_id in finished:
-                del state[src_id]
-
-        for src_id in finished:
-            _push(sid, 'status', {'code': 'TRACK_COMPLETE', 'source_id': src_id,
-                                   'server_ts': int(time.time() * 1000)})
-
-        if not buffers_map:
             with lock:
-                if not state:
-                    break
-            tick += 1
-            continue
+                paused = _g_stream_paused.get(sid, set())
+                for src_id, src in list(state.items()):
+                    if src_id in paused:
+                        continue
+                    pos   = src['pos']
+                    total = len(src['buffers'])
+                    if pos >= total:
+                        track_finished.append(src_id)
+                        continue
+                    buffers_map[src_id]      = src['buffers'][pos]
+                    src['pos']               = pos + 1
+                    source_positions[src_id] = {'current': pos, 'total': total}
+                for src_id in track_finished:
+                    del state[src_id]
+                session_done = len(state) == 0
 
-        proc = _processors.get(sid)
-        if not proc or not proc.is_initialised:
-            return
+            for src_id in track_finished:
+                _push(sid, 'status', {'code': 'TRACK_COMPLETE', 'source_id': src_id,
+                                      'server_ts': int(time.time() * 1000)})
 
-        result = proc.process_sources(buffers_map)
-        if result is not None:
-            left, right = result
-            _push(sid, 'audio_chunk', {
-                'audio_data':       encode_audio_to_base64(left, right),
-                'source_positions': source_positions,
-                'render_ts':        int(time.time() * 1000),
-            })
+            if session_done:
+                completed_sessions.append(sid)
+                continue
 
-        tick  += 1
+            if not buffers_map:
+                continue
+
+            fut = _render_pool.submit(_do_render_session, sid, buffers_map)
+            futures_map[fut] = (sid, source_positions)
+
+        for fut, (sid, source_positions) in futures_map.items():
+            try:
+                r_sid, left, right = fut.result(timeout=buffer_duration * 5)
+                if left is not None:
+                    _push(r_sid, 'audio_chunk', {
+                        'audio_data':       encode_audio_to_base64(left, right),
+                        'source_positions': source_positions,
+                        'render_ts':        int(time.time() * 1000),
+                    })
+            except Exception as e:
+                logging.error(f"HTTP render error for {sid}: {e}")
+
+        for sid in completed_sessions:
+            with _g_lock:
+                _g_stream_active.discard(sid)
+            _g_stream_states.pop(sid, None)
+            _g_stream_locks.pop(sid, None)
+            _g_stream_paused.pop(sid, None)
+            _push(sid, 'status', {'code': 'STREAM_COMPLETE', 'server_ts': int(time.time() * 1000)})
+
         t_next = t_start + tick * buffer_duration
         sleep  = t_next - time.time()
         if sleep > 0:
@@ -497,11 +528,8 @@ def _stream_task(sid: str, stop_event: threading.Event):
         elif sleep < -10 * buffer_duration:
             t_start = time.time() - tick * buffer_duration
 
-    if not stop_event.is_set():
-        _push(sid, 'status', {'code': 'STREAM_COMPLETE', 'server_ts': int(time.time() * 1000)})
-    _stream_stops.pop(sid, None)
-    _stream_paused.pop(sid, None)
-    logging.info(f"Stream task ended: {sid}")
+
+threading.Thread(target=_http_global_render_loop, daemon=True, name='http-render-loop').start()
 
 
 @app.route('/')
