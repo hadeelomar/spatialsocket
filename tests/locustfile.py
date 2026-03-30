@@ -65,6 +65,7 @@ class SpatialSocketUser(User):
     def on_start(self):
         self._sio = sio_lib.Client(logger=False, engineio_logger=False, request_timeout=30)
         self._source_id = f"src-{random.randint(10000, 99999)}"
+        self._server_session_id = None  # server's request.sid (differs from sio.sid)
         self._filename = None
         self._chunk_count = 0
 
@@ -95,9 +96,14 @@ class SpatialSocketUser(User):
     def _connect(self):
         start = time.time()
         try:
+        
+            host_url = self.host
+            if not host_url.startswith(('http://', 'https://')):
+                host_url = f'http://{host_url}'
+            
             self._sio.connect(
-                self.host,
-                transports=['websocket'],
+                host_url,
+                transports=['websocket', 'polling'],
                 wait_timeout=10,
             )
             _fire(self.environment, 'connect', start)
@@ -107,6 +113,10 @@ class SpatialSocketUser(User):
     # socket.io event handlers
 
     def _register_handlers(self):
+        @self._sio.on('connected')
+        def on_connected(data):
+            self._server_session_id = data.get('session_id')
+
         @self._sio.on('status')
         def on_status(data):
             code = data.get('code', '')
@@ -181,19 +191,19 @@ class SpatialSocketUser(User):
               exception=None if ok and self._create_ok else TimeoutError('create_source timed out'))
 
     def _step_upload(self):
-        sid = self._sio.sid
+        sid = self._server_session_id
         if not sid:
             return
         start = time.time()
         try:
             resp = requests.post(
                 f"{self.host}/upload/{sid}/{self._source_id}",
-                files={'file': ('tone.wav', _WAV_BYTES, 'audio/wav')},
+                files={'audio_file': ('tone.wav', _WAV_BYTES, 'audio/wav')},
                 timeout=15,
             )
             elapsed = (time.time() - start) * 1000
             if resp.status_code == 200:
-                self._filename = resp.json().get('filename')
+                self._filename = resp.json().get('saved_filename')
                 self.environment.events.request.fire(
                     request_type='http',
                     name='upload_audio',

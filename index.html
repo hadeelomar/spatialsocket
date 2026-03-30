@@ -1532,10 +1532,7 @@ socket.<span class="fn">on</span>(<span class="str">'file_audio_chunk'</span>, (
         <label>HTTP+SSE URL</label>
         <input type="text" id="bench-http-url" value="http://localhost:5001">
       </div>
-      <div class="bench-cfg-group" style="width:80px">
-        <label>Sessions</label>
-        <input type="number" id="bench-sessions" value="1" min="1" max="10" style="width:80px">
-      </div>
+      <input type="hidden" id="bench-sessions" value="1">
       <div class="bench-cfg-group" style="width:80px">
         <label>Chunks</label>
         <input type="number" id="bench-chunks" value="20" min="5" max="100" style="width:80px">

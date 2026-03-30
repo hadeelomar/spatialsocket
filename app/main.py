@@ -68,13 +68,74 @@ _g_lock = threading.Lock()              # guards _g_stream_active
 decoded_buffer_cache: Dict[str, list] = {}
 
 _cpu = os.cpu_count() or 4
-# py3dti releases GIL during DSP — real OS threads give true parallelism
-# hrtf_pool=50: 100 sessions / 50 threads = 2 batches × ~5s = ~10s (within benchmark timeout)
-# render_pool=50: covers all 100 sessions; GIL released so they run in parallel
-# setup_pool=16: for interactive create_source / update_pos (20-50ms each)
-_hrtf_pool   = _GeventThreadPool(50)   # parallel HRTF loading — dominant bottleneck for 100 sessions
-_render_pool = _GeventThreadPool(50)   # parallel render ticks
+
+_hrtf_pool   = _GeventThreadPool(1)    # sequential hrtf loading (GIL-bound, parallelism impossible)
+_render_pool = _GeventThreadPool(50)   # parallel render ticks (GIL released during DSP)
 _setup_pool  = _GeventThreadPool(16)   # interactive py3dti ops
+
+RENDERER_POOL_SIZE = int(os.environ.get('RENDERER_POOL_SIZE', 0))  # 0 = disabled (lazy init)
+
+class _RendererPool:
+    """pool of pre-initialised AudioProcessor instances."""
+
+    def __init__(self, size: int, hrtf_file: str):
+        self._hrtf_file = hrtf_file
+        self._pool: list = []
+        self._lock = threading.Lock()
+        self._size = size
+        if size > 0:
+            logging.info(f"renderer pool: starting background pre-load of {size} renderers (hrtf={hrtf_file})…")
+            # fill in a daemon thread so gunicorn starts accepting connections immediately
+            t = threading.Thread(target=self._fill, args=(size,), daemon=True, name='renderer-pool-fill')
+            t.start()
+
+    def _make_one(self) -> AudioProcessor:
+        p = AudioProcessor(config.SAMPLE_RATE, config.BUFFER_SIZE)
+        p.initialise(hrtf_file=self._hrtf_file)
+        return p
+
+    def _fill(self, n: int):
+        """sequentially load n renderers (GIL-bound - parallelism impossible)."""
+        for _ in range(n):
+            try:
+                p = self._make_one()
+                with self._lock:
+                    self._pool.append(p)
+                # yield GIL between loads so gevent event loop can process requests
+                time.sleep(2)
+            except Exception as e:
+                logging.error(f"renderer pool: failed to pre-load renderer: {e}")
+
+    def acquire(self) -> AudioProcessor:
+        """return a ready renderer, or None if pool is empty (fall back to lazy init)."""
+        with self._lock:
+            if self._pool:
+                return self._pool.pop()
+        return None
+
+    def release(self, processor: AudioProcessor):
+        """return a used renderer to the pool after resetting it, then reload HRTF in background."""
+        def _reload():
+            try:
+                processor.cleanup()
+                processor.__init__(config.SAMPLE_RATE, config.BUFFER_SIZE)
+                processor.initialise(hrtf_file=self._hrtf_file)
+                with self._lock:
+                    if len(self._pool) < self._size:
+                        self._pool.append(processor)
+                logging.info(f"renderer pool: renderer returned and reloaded (pool size={len(self._pool)})")
+            except Exception as e:
+                logging.error(f"renderer pool: failed to reload renderer: {e}")
+        _hrtf_pool.apply_async(_reload)
+
+    def size(self) -> int:
+        with self._lock:
+            return len(self._pool)
+
+_renderer_pool = _RendererPool(
+    size=RENDERER_POOL_SIZE,
+    hrtf_file=config.DEFAULT_HRTF_FILE,
+)
 
 def shutdown_server():
     logging.info("shutting down server...")
@@ -124,7 +185,11 @@ def serve_rendered_audio(session_id, filename):
 
 @app.route('/health')
 def health():
-    return jsonify({'status': 'healthy'})
+    return jsonify({
+        'status': 'healthy',
+        'renderer_pool_available': _renderer_pool.size(),
+        'renderer_pool_size': RENDERER_POOL_SIZE,
+    })
 
 @app.route('/upload/<session_id>/<source_id>', methods=['POST'])
 def upload_audio_file(session_id, source_id):
@@ -289,7 +354,13 @@ def handle_connect():
 
     if not recovered:
         session = session_manager.create_session(session_id, config.SAMPLE_RATE, config.BUFFER_SIZE)
-        audio_processors[session_id] = AudioProcessor(config.SAMPLE_RATE, config.BUFFER_SIZE)
+        # try to get a pre-loaded renderer from the pool for instant init
+        pooled = _renderer_pool.acquire()
+        if pooled:
+            audio_processors[session_id] = pooled
+            logging.info(f"session {session_id}: assigned pre-loaded renderer from pool (pool remaining={_renderer_pool.size()})")
+        else:
+            audio_processors[session_id] = AudioProcessor(config.SAMPLE_RATE, config.BUFFER_SIZE)
         session.set_stream_state(StreamState.IDLE)
 
     performance_monitor.record_send_timestamp(session_id)
@@ -317,10 +388,14 @@ def handle_disconnect():
 
     if session_id in audio_processors:
         try:
-            processor = audio_processors[session_id]
-            processor.cleanup()
-            del audio_processors[session_id]
-            logging.info(f"audio processor cleaned up for session {session_id}")
+            processor = audio_processors.pop(session_id)
+            if RENDERER_POOL_SIZE > 0 and processor.is_initialised and not processor.placeholder_mode:
+                # return to pool - it will reset and reload hrtf in background
+                _renderer_pool.release(processor)
+                logging.info(f"audio processor returned to renderer pool for session {session_id}")
+            else:
+                processor.cleanup()
+                logging.info(f"audio processor cleaned up for session {session_id}")
         except Exception as e:
             logging.error(f"error cleaning up processor for {session_id}: {e}")
     
@@ -386,6 +461,21 @@ def handle_init_audio(data=None):
                 return
     else:
         hrtf_file = data.get('hrtf_file', config.DEFAULT_HRTF_FILE)
+
+    # if this session got a pre-loaded renderer from the pool and no custom hrtf is needed, skip init
+    if processor.is_initialised and not use_uploaded and hrtf_file == config.DEFAULT_HRTF_FILE:
+        import psutil
+        memory_delta_mb = 0.0
+        logging.info(f"session {session_id}: renderer already initialised from pool - skipping hrtf load")
+        emit('status', {
+            'code': 'AUDIO_INITIALISED',
+            'message': 'audio initialised (pre-loaded)',
+            'hrtf_source': hrtf_file,
+            'placeholder_mode': processor.placeholder_mode,
+            'memory_delta_mb': memory_delta_mb,
+            'server_ts': int(time.time() * 1000),
+        })
+        return
 
     emit('status', {
         'code': 'AUDIO_LOADING',
@@ -496,6 +586,8 @@ def handle_update_position(data):
         if '_seq' in data:
             resp['_seq'] = data['_seq']
         emit('status', resp)
+    else:
+        emit('status', {'code': 'UPDATE_FAILED', 'source_id': source_id, 'reason': 'no processor'})
 
 
 @socketio.on('update_listener')
@@ -971,7 +1063,7 @@ def _global_render_loop():
                 ar = _render_pool.apply_async(_do_render_session, (session_id, buffers_map))
                 futures_map[ar] = (session_id, source_positions)
 
-            # collect results — .get() suspends this greenlet (not the event loop) while py3dti runs
+            # collect results - .get() suspends this greenlet (not the event loop) while py3dti runs
             for ar, (session_id, source_positions) in futures_map.items():
                 try:
                     r_sid, left, right = ar.get()
