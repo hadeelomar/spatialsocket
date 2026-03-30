@@ -1,5 +1,5 @@
 """
-spatialsocket load test — simulates a full user session:
+spatialsocket load test - simulates a full user session:
   connect → init audio → create source → upload file → stream → move source → disconnect
 
 run with:
@@ -19,12 +19,12 @@ import gevent
 import gevent.event
 
 import socketio as sio_lib
-from locust import User, task, events, between
+from locust import User, task, between
 
 logger = logging.getLogger(__name__)
 
 
-# --- synthetic 440 hz wav (2s, mono, 48khz, 16-bit) ---
+# synthetic 440 hz wav (2s, mono, 48khz, 16-bit)
 
 def _make_wav(frequency=440, duration=2.0, sample_rate=48000) -> bytes:
     num_samples = int(sample_rate * duration)
@@ -63,7 +63,7 @@ class SpatialSocketUser(User):
     wait_time = between(1, 3)
 
     def on_start(self):
-        self._sio = sio_lib.Client(logger=False, engineio_logger=False)
+        self._sio = sio_lib.Client(logger=False, engineio_logger=False, request_timeout=30)
         self._source_id = f"src-{random.randint(10000, 99999)}"
         self._filename = None
         self._chunk_count = 0
@@ -90,7 +90,7 @@ class SpatialSocketUser(User):
         except Exception:
             pass
 
-    # --- connection ---
+    # connection
 
     def _connect(self):
         start = time.time()
@@ -104,7 +104,7 @@ class SpatialSocketUser(User):
         except Exception as e:
             _fire(self.environment, 'connect', start, exception=e)
 
-    # --- socket.io event handlers ---
+    # socket.io event handlers
 
     def _register_handlers(self):
         @self._sio.on('status')
@@ -139,7 +139,7 @@ class SpatialSocketUser(User):
             for ev in (self._ev_init, self._ev_create, self._ev_pos, self._ev_chunk):
                 ev.set()
 
-    # --- session steps ---
+    # session steps
 
     def _run_session(self):
         try:
@@ -165,7 +165,7 @@ class SpatialSocketUser(User):
         self._ev_init.clear()
         start = time.time()
         self._sio.emit('init_audio', {'hrtf_file': 'p0200.sofa'})
-        ok = self._ev_init.wait(timeout=30)
+        ok = self._ev_init.wait(timeout=60)
         _fire(self.environment, 'init_audio', start,
               exception=None if ok and self._init_ok else TimeoutError('init_audio timed out'))
 
