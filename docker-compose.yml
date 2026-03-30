@@ -1,12 +1,25 @@
 services:
-  server:
+  websocket:
     build: .
     ports:
-      - "5000:5000"   # websocket
-      - "5001:5001"   # http+sse
+      - "5000:5000"
     cpus: "4"
     mem_limit: 12g
     environment:
       - FLASK_ENV=production
       - SECRET_KEY=dev-secret-change-in-prod
+      - RENDERER_POOL_SIZE=100
+    command: ["sh", "-c", "cd /app/app && gunicorn --worker-class geventwebsocket.gunicorn.workers.GeventWebSocketWorker --workers 1 --bind 0.0.0.0:5000 --timeout 300 --log-level info main:app"]
+    restart: unless-stopped
+
+  http:
+    build: .
+    ports:
+      - "5001:5001"
+    cpus: "2"
+    mem_limit: 4g
+    environment:
+      - FLASK_ENV=production
+      - SECRET_KEY=dev-secret-change-in-prod
+    command: ["sh", "-c", "cd /app/http_server && gunicorn --worker-class gevent --workers 1 --bind 0.0.0.0:5001 --timeout 300 --log-level info main:app"]
     restart: unless-stopped
