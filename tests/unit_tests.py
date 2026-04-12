@@ -14,11 +14,11 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'app'))
 
 from app.session_manager import SessionManager, Session, StreamState
-from source_manager import SourceManager
-from audio_processor import AudioProcessor
-from audio_streamer import AudioStreamer
-from performance_monitor import PerformanceMonitor
-from config import config
+from app.source_manager import SourceManager
+from app.audio_processor import AudioProcessor
+from app.audio_streamer import AudioStreamer
+from app.performance_monitor import PerformanceMonitor
+from app.config import config
 
 
 class TestSession(unittest.TestCase):
