@@ -3,6 +3,7 @@ import os
 import numpy as np
 import base64
 import logging
+import uuid
 from typing import Optional
 
 try:
@@ -46,6 +47,73 @@ class SourceManager:
             return file_path
         except Exception as e:
             logging.error(f"Failed to save uploaded file: {e}")
+            return None
+
+    def create_source(self, session_id: str) -> str:
+        """generate a unique source id for a session."""
+        return f"{session_id}_{uuid.uuid4().hex[:8]}"
+
+    def generate_test_tone(
+        self,
+        frequency: float,
+        duration: float,
+        sample_rate: int = 44100,
+    ) -> np.ndarray:
+        t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+        return (0.3 * np.sin(2 * np.pi * frequency * t)).astype(np.float32)
+
+    def _stereo_to_mono(self, audio: np.ndarray) -> np.ndarray:
+        audio = np.asarray(audio, dtype=np.float32)
+        if audio.ndim == 1:
+            return audio
+        return audio.mean(axis=1, dtype=np.float32)
+
+    def _split_into_buffers(self, audio_data: np.ndarray, buffer_size: int) -> list:
+        audio_data = np.asarray(audio_data, dtype=np.float32)
+        remainder = len(audio_data) % buffer_size
+        if remainder:
+            audio_data = np.pad(audio_data, (0, buffer_size - remainder))
+        return [audio_data[i:i + buffer_size] for i in range(0, len(audio_data), buffer_size)]
+
+    def _resample_audio(
+        self,
+        audio_data: np.ndarray,
+        original_rate: int,
+        target_rate: int,
+    ) -> np.ndarray:
+        audio_data = np.asarray(audio_data, dtype=np.float32)
+        if original_rate == target_rate:
+            return audio_data
+        duration = len(audio_data) / float(original_rate)
+        target_length = int(round(duration * target_rate))
+        if target_length <= 0:
+            return np.zeros(0, dtype=np.float32)
+        # use simple interpolation here because this helper is mainly for tests and compatibility paths.
+        source_x = np.linspace(0.0, duration, len(audio_data), endpoint=False)
+        target_x = np.linspace(0.0, duration, target_length, endpoint=False)
+        return np.interp(target_x, source_x, audio_data).astype(np.float32)
+
+    def decode_audio(
+        self,
+        session_id: str,
+        source_id: str,
+        file_path: str,
+        sample_rate: int = 44100,
+        buffer_size: int = 1024,
+    ) -> Optional[list]:
+        """Decode an uploaded file into mono float32 buffers."""
+        try:
+            import miniaudio
+
+            decoded = miniaudio.decode_file(file_path)
+            audio = np.asarray(decoded.samples, dtype=np.float32)
+            if getattr(decoded, 'num_channels', 1) > 1:
+                audio = self._stereo_to_mono(audio.reshape(-1, decoded.num_channels))
+            if getattr(decoded, 'sample_rate', sample_rate) != sample_rate:
+                audio = self._resample_audio(audio, decoded.sample_rate, sample_rate)
+            return self._split_into_buffers(audio, buffer_size)
+        except Exception as e:
+            logging.error(f"Failed to decode audio {file_path}: {e}")
             return None
 
     def save_uploaded_file_stream(
@@ -140,6 +208,7 @@ class SourceManager:
                     if sr != sample_rate:
                         from scipy.signal import resample_poly
                         from fractions import Fraction
+                        # keep the resampling ratio bounded so scipy does not build oversized filters.
                         ratio = Fraction(sample_rate, sr).limit_denominator(512)
                         audio = resample_poly(audio, ratio.numerator, ratio.denominator).astype(np.float32)
                 except ImportError:

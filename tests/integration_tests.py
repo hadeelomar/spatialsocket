@@ -290,6 +290,49 @@ class TestProtocolComparison(unittest.TestCase):
         print(f"HTTP jitter (σ): {http_jitter:.2f}ms")
         print(f"HTTP reduction: {(1 - http_jitter/ws_jitter) * 100:.1f}%")
 
+    def test_protocol_equivalence(self):
+        """websocket and http render helpers must preserve the same stereo frame."""
+        import http_server.main as http_server
+        from app.audio_streamer import encode_audio_to_base64, generate_test_tone
+
+        session_id = "protocol_equivalence_test"
+        source_id = "src1"
+        position = {'x': 1.0, 'y': 0.0, 'z': 0.0}
+        test_buffer = generate_test_tone(440.0, 1024 / 48000, 48000)
+
+        ws_proc = AudioProcessor(sample_rate=48000, buffer_size=1024)
+        http_proc = AudioProcessor(sample_rate=48000, buffer_size=1024)
+
+        self.assertTrue(ws_proc.initialise())
+        self.assertTrue(http_proc.initialise())
+        self.assertTrue(ws_proc.create_source(source_id, position))
+        self.assertTrue(http_proc.create_source(source_id, position))
+
+        http_server._processors[session_id] = http_proc
+
+        try:
+            buffers_map = {source_id: test_buffer}
+
+            ws_left, ws_right = ws_proc.process_sources(buffers_map)
+            http_session_id, http_payload = http_server._do_render_session(session_id, buffers_map)
+
+            self.assertEqual(http_session_id, session_id)
+            self.assertIsNotNone(ws_left)
+            self.assertIsNotNone(ws_right)
+            self.assertIsNotNone(http_payload)
+
+            ws_payload = encode_audio_to_base64(ws_left, ws_right)
+            http_interleaved = np.frombuffer(base64.b64decode(http_payload), dtype=np.float32)
+            http_stereo = http_interleaved.reshape(-1, 2)
+
+            self.assertEqual(ws_payload, http_payload)
+            np.testing.assert_allclose(ws_left, http_stereo[:, 0])
+            np.testing.assert_allclose(ws_right, http_stereo[:, 1])
+        finally:
+            http_server._processors.pop(session_id, None)
+            ws_proc.cleanup()
+            http_proc.cleanup()
+
 
 class TestMemoryAndResourceUsage(unittest.TestCase):
     """test memory consumption and resource usage."""

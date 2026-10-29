@@ -117,6 +117,7 @@ class _RendererPool:
         """return a used renderer to the pool after resetting it, then reload HRTF in background."""
         def _reload():
             try:
+                # rebuild the processor before returning it so the next session gets a clean renderer.
                 processor.cleanup()
                 processor.__init__(config.SAMPLE_RATE, config.BUFFER_SIZE)
                 processor.initialise(hrtf_file=self._hrtf_file)
@@ -342,6 +343,7 @@ def handle_connect():
             old_id = old_session.session_id
             session = session_manager.migrate_session(old_id, session_id)
             if session and old_id in audio_processors:
+                # move all session-scoped runtime state to the new socket id after reconnect.
                 audio_processors[session_id] = audio_processors.pop(old_id)
                 if old_id in _g_stream_states:
                     _g_stream_states[session_id] = _g_stream_states.pop(old_id)
@@ -973,6 +975,7 @@ def handle_stream_uploaded_file(data):
         with _g_stream_locks[session_id]:
             if session_id not in _g_stream_states:
                 _g_stream_states[session_id] = {}
+            # each source keeps its decoded buffers plus a cursor into the current playback position.
             _g_stream_states[session_id][source_id] = {'buffers': buffers, 'pos': 0}
 
         with _g_lock:
@@ -1044,6 +1047,7 @@ def _global_render_loop():
                         source_positions[src_id] = {'current': pos, 'total': total}
                     for src_id in track_finished:
                         del state[src_id]
+                    # an empty state here means every track in this session finished on this tick.
                     session_done = len(state) == 0
 
                 for src_id in track_finished:

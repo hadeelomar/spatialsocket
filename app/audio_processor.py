@@ -171,6 +171,7 @@ class AudioProcessor:
 
         try:
             source = self.renderer.add_source(
+                # py3dti uses a different axis convention from the api payloads.
                 position=(position['z'], -position['x'], position['y'])
             )
             # disable unnecessary effects
@@ -200,6 +201,7 @@ class AudioProcessor:
             return True
 
         try:
+            # keep the same axis remap used during source creation.
             self.sources[source_id].position = (position['z'], -position['x'], position['y'])
             print(f"updated py3dti source position: {source_id} to {position}")
             return True
@@ -341,6 +343,7 @@ class AudioProcessor:
                 return None
 
             if self._streamer is None:
+                # render_online snapshots the current py3dti graph, so rebuild after source changes.
                 self._streamer = self.renderer.render_online()
 
             binaural = self._streamer(samples_map, position_map)
@@ -383,6 +386,7 @@ class AudioProcessor:
             distance = np.sqrt(dx*dx + dy*dy + dz*dz)
             attenuation = np.clip(1.0 / (1.0 + distance * 0.1), 0.1, 1.0)
 
+            # placeholder mode approximates lateral placement with equal-power stereo panning.
             pan = np.clip(dx / 5.0, -1.0, 1.0)
             left_gain  = np.sqrt(max(0.0, 1.0 - pan)) * 0.707
             right_gain = np.sqrt(max(0.0, 1.0 + pan)) * 0.707

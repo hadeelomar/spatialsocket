@@ -12,7 +12,7 @@ import queue
 import uuid
 import logging
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 
 from flask import Flask, Response, jsonify, request, stream_with_context
 from flask_cors import CORS
@@ -438,11 +438,12 @@ def _stop_all(sid: str):
 def _do_render_session(sid: str, buffers_map: dict):
     proc = _processors.get(sid)
     if not proc or not proc.is_initialised:
-        return sid, None, None
+        return sid, None
     result = proc.process_sources(buffers_map)
     if result is None:
-        return sid, None, None
-    return sid, result[0], result[1]
+        return sid, None
+    left, right = result
+    return sid, encode_audio_to_base64(left, right)
 
 
 def _http_global_render_loop():
@@ -501,17 +502,26 @@ def _http_global_render_loop():
             fut = _render_pool.submit(_do_render_session, sid, buffers_map)
             futures_map[fut] = (sid, source_positions)
 
-        for fut, (sid, source_positions) in futures_map.items():
-            try:
-                r_sid, left, right = fut.result(timeout=buffer_duration * 5)
-                if left is not None:
-                    _push(r_sid, 'audio_chunk', {
-                        'audio_data':       encode_audio_to_base64(left, right),
-                        'source_positions': source_positions,
-                        'render_ts':        int(time.time() * 1000),
-                    })
-            except Exception as e:
-                logging.error(f"HTTP render error for {sid}: {e}")
+        render_deadline = buffer_duration * 5
+        try:
+            for fut in as_completed(futures_map, timeout=render_deadline):
+                sid, source_positions = futures_map[fut]
+                try:
+                    r_sid, encoded_audio = fut.result()
+                    if encoded_audio is not None:
+                        _push(r_sid, 'audio_chunk', {
+                            'audio_data':       encoded_audio,
+                            'source_positions': source_positions,
+                            'render_ts':        int(time.time() * 1000),
+                        })
+                except Exception as e:
+                    logging.error(f"HTTP render error for {sid}: {e}")
+        except TimeoutError:
+            logging.warning("HTTP render loop deadline exceeded; dropping late frames")
+        # Cancel any renders that missed this frame budget and continue.
+        for fut in futures_map:
+            if not fut.done():
+                fut.cancel()
 
         for sid in completed_sessions:
             with _g_lock:
