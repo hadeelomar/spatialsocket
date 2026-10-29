@@ -1,12 +1,12 @@
 import time
 from collections import deque
-from threading import Lock
+from threading import RLock
 from typing import Dict, Any
 
 class PerformanceMonitor:
     def __init__(self, window_size: int = 100):
         self.window_size = window_size
-        self.lock = Lock()
+        self.lock = RLock()
 
         self.latencies: deque = deque(maxlen=window_size)
         self.processing_times: deque = deque(maxlen=window_size)
@@ -20,6 +20,16 @@ class PerformanceMonitor:
         self.start_time = time.time()
         
         self.session_metrics: Dict[str, Dict[str, Any]] = {}
+
+    def record_latency(self, latency: float):
+        """record a latency sample directly."""
+        with self.lock:
+            self.latencies.append(float(latency))
+
+    def record_processing_time(self, processing_time: float):
+        """record a processing-time sample directly."""
+        with self.lock:
+            self.processing_times.append(float(processing_time))
 
     def record_receive_timestamp(self, session_id: str):
         """record when a message is received."""
@@ -72,6 +82,7 @@ class PerformanceMonitor:
         with self.lock:
             timestamp = time.time()
             if self.message_timestamps:
+                # pair the send with the latest receive event to approximate end-to-end handler latency.
                 receive_time = self.message_timestamps[-1]
                 latency = timestamp - receive_time
                 self.latencies.append(latency)
@@ -180,3 +191,23 @@ class PerformanceMonitor:
         with self.lock:
             if session_id in self.session_metrics:
                 del self.session_metrics[session_id]
+
+    def get_statistics(self) -> Dict[str, Any]:
+        """return summary stats used by the test suite."""
+        with self.lock:
+            latency_samples = list(self.latencies)
+            processing_samples = list(self.processing_times)
+            return {
+                'avg_latency': sum(latency_samples) / len(latency_samples) if latency_samples else 0.0,
+                'avg_processing_time': sum(processing_samples) / len(processing_samples) if processing_samples else 0.0,
+                'min_latency': min(latency_samples) if latency_samples else 0.0,
+                'max_latency': max(latency_samples) if latency_samples else 0.0,
+                'sample_count': len(latency_samples),
+            }
+
+    def reset(self):
+        """Clear rolling statistics without touching lifetime counters."""
+        with self.lock:
+            self.latencies.clear()
+            self.processing_times.clear()
+            self.message_timestamps.clear()

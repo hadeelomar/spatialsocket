@@ -16,7 +16,7 @@ class Config:
 
     _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     HRTF_DATASETS_DIR = os.environ.get('HRTF_DATASETS_DIR', os.path.join(_PROJECT_ROOT, 'hrtf_datasets'))
-    DEFAULT_HRTF_FILE = os.environ.get('DEFAULT_HRTF_FILE', 'p0200.sofa')
+    DEFAULT_HRTF_FILE = os.environ.get('DEFAULT_HRTF_FILE', 'KEMAR_GRAS_EarSim_SmallEars_FreeFieldComp_48kHz.sofa')
     HRTF_UPLOAD_DIR = os.environ.get('HRTF_UPLOAD_DIR', os.path.join(_PROJECT_ROOT, 'hrtf_uploads'))
 
     CORS_ALLOWED_ORIGINS = '*'

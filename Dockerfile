@@ -2,7 +2,7 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# system deps for scipy/numpy and soundcard
+# system deps for scipy/numpy
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \

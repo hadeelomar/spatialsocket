@@ -174,7 +174,7 @@ class SpatialSocketUser(User):
     def _step_init_audio(self):
         self._ev_init.clear()
         start = time.time()
-        self._sio.emit('init_audio', {'hrtf_file': 'p0200.sofa'})
+        self._sio.emit('init_audio', {'hrtf_file': 'KEMAR_GRAS_EarSim_SmallEars_FreeFieldComp_48kHz.sofa'})
         ok = self._ev_init.wait(timeout=60)
         _fire(self.environment, 'init_audio', start,
               exception=None if ok and self._init_ok else TimeoutError('init_audio timed out'))

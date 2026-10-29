@@ -14,11 +14,11 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'app'))
 
 from app.session_manager import SessionManager, Session, StreamState
-from source_manager import SourceManager
-from audio_processor import AudioProcessor
-from audio_streamer import AudioStreamer
-from performance_monitor import PerformanceMonitor
-from config import config
+from app.source_manager import SourceManager
+from app.audio_processor import AudioProcessor
+from app.audio_streamer import AudioStreamer
+from app.performance_monitor import PerformanceMonitor
+from app.config import config
 
 
 class TestSession(unittest.TestCase):
@@ -40,24 +40,26 @@ class TestSession(unittest.TestCase):
         self.assertIsInstance(self.session.last_seen, float)
     
     def test_listener_pose_defaults(self):
-        """test listener pose initializes to default values."""
-        self.assertTrue(np.allclose(self.session.listener_position, [0.0, 0.0, 0.0]))
-        self.assertTrue(np.allclose(self.session.listener_forward, [0.0, 0.0, -1.0]))
-        self.assertTrue(np.allclose(self.session.listener_up, [0.0, 1.0, 0.0]))
+        """test listener pose initialises to default values."""
+        pose = self.session.get_listener_pose()
+        self.assertEqual(pose['position'], {'x': 0.0, 'y': 0.0, 'z': 0.0})
+        self.assertEqual(pose['orientation']['forward'], {'x': 0.0, 'y': 0.0, 'z': -1.0})
+        self.assertEqual(pose['orientation']['up'], {'x': 0.0, 'y': 1.0, 'z': 0.0})
     
     def test_update_listener_pose(self):
         """test updating listener position and orientation."""
-        new_position = np.array([1.0, 2.0, 3.0])
-        new_forward = np.array([0.0, 0.0, -1.0])
-        new_up = np.array([0.0, 1.0, 0.0])
-        
-        self.session.listener_position = new_position
-        self.session.listener_forward = new_forward
-        self.session.listener_up = new_up
-        
-        self.assertTrue(np.allclose(self.session.listener_position, new_position))
-        self.assertTrue(np.allclose(self.session.listener_forward, new_forward))
-        self.assertTrue(np.allclose(self.session.listener_up, new_up))
+        new_position = {'x': 1.0, 'y': 2.0, 'z': 3.0}
+        orientation = {
+            'forward': {'x': 0.0, 'y': 0.0, 'z': -1.0},
+            'up': {'x': 0.0, 'y': 1.0, 'z': 0.0},
+        }
+
+        position_changed = self.session.update_listener_pose(new_position, orientation)
+        pose = self.session.get_listener_pose()
+
+        self.assertTrue(position_changed)
+        self.assertEqual(pose['position'], new_position)
+        self.assertEqual(pose['orientation'], orientation)
     
     def test_stream_state_transitions(self):
         """test stream state changes."""
@@ -250,43 +252,38 @@ class TestSourceManager(unittest.TestCase):
 class TestAudioProcessor(unittest.TestCase):
     """test cases for audioprocessor class."""
 
-    @patch('py3dti.Core')
-    def setUp(self, mock_core_class):
-        """setup with mocked py3dti."""
-        self.mock_core = Mock()
-        mock_core_class.return_value = self.mock_core
-        self.mock_core.LoadHRTF.return_value = True
-        
-        self.processor = AudioProcessor(hrtf_path="fake_hrtf.sofa")
+    def setUp(self):
+        self.processor = AudioProcessor(sample_rate=48000, buffer_size=1024)
+        self.processor.initialise()
+
+    def tearDown(self):
+        self.processor.cleanup()
     
-    def test_initialization(self):
-        """test processor initializes correctly."""
-        self.mock_core.SetAudioState.assert_called_once()
-        self.mock_core.LoadHRTF.assert_called_once()
+    def test_initialisation(self):
+        """test processor initialises correctly."""
+        self.assertTrue(self.processor.is_initialised)
+        self.assertTrue(self.processor.placeholder_mode)
     
     def test_hrtf_loading_failure(self):
         """test handling of hrtf loading failure."""
-        with patch('py3dti.Core') as mock_core_class:
-            mock_core = Mock()
-            mock_core.LoadHRTF.return_value = False
-            mock_core_class.return_value = mock_core
-            
-            with self.assertRaises(RuntimeError):
-                AudioProcessor(hrtf_path="invalid_hrtf.sofa")
+        processor = AudioProcessor(sample_rate=48000, buffer_size=1024)
+        try:
+            self.assertFalse(processor.initialise(hrtf_path="/definitely/missing.sofa"))
+            self.assertFalse(processor.is_initialised)
+        finally:
+            processor.cleanup()
     
     def test_process_silent_input(self):
         """test processing silent input produces silent output."""
-        session = Mock()
-        session.listener_position = np.array([0.0, 0.0, 0.0])
-        session.listener_forward = np.array([0.0, 0.0, -1.0])
-        session.listener_up = np.array([0.0, 1.0, 0.0])
-        session.sources = {}
-        self.mock_core.ProcessBuffer.return_value = np.zeros((1024, 2), dtype=np.float32)
-        
-        output = self.processor.process_frame(session)
-        
-        self.assertEqual(output.shape, (1024, 2))
-        self.assertTrue(np.allclose(output, 0.0))
+        self.assertTrue(self.processor.create_source("src1", {'x': 0.0, 'y': 0.0, 'z': 0.0}))
+        output = self.processor.process_audio("src1", np.zeros(1024, dtype=np.float32))
+
+        self.assertIsNotNone(output)
+        left, right = output
+        self.assertEqual(left.shape, (1024,))
+        self.assertEqual(right.shape, (1024,))
+        self.assertTrue(np.allclose(left, 0.0))
+        self.assertTrue(np.allclose(right, 0.0))
 
 
 class TestAudioStreamer(unittest.TestCase):

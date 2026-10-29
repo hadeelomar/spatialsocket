@@ -67,6 +67,7 @@ class Session:
         """update listener pose; returns true if position changed."""
         with self._pose_lock:
             old_pos = self.listener_pose['position']
+            # tiny listener movements are treated as unchanged to avoid unnecessary renderer updates.
             position_changed = (
                 abs(old_pos['x'] - position['x']) > 0.001 or
                 abs(old_pos['y'] - position['y']) > 0.001 or
